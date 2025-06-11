@@ -506,6 +506,7 @@ class EmailBackend(BaseBackend):
             "from email import encoders",
             "import os",
             "import re",
+            "import uuid",
             "from email_validator import validate_email, EmailNotValidError",
         ]
     
@@ -606,7 +607,7 @@ async def _create_email_message(to: str, subject: str, body: str, cc: str = None
     
     # Add message ID
     import uuid
-    msg['Message-ID'] = f"<{uuid.uuid4()}@{SMTP_HOST}>"
+    msg['Message-ID'] = f"<{{uuid.uuid4()}}@{{SMTP_HOST}}>"
     
     # Add text body
     if body:
@@ -638,7 +639,7 @@ async def _create_email_message(to: str, subject: str, body: str, cc: str = None
                 encoders.encode_base64(part)
                 part.add_header(
                     'Content-Disposition',
-                    f'attachment; filename= "{filename}"'
+                    f'attachment; filename= "{{filename}}"'
                 )
                 msg.attach(part)
     

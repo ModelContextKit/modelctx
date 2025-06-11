@@ -1,5 +1,6 @@
 """Filesystem backend implementation for MCP servers."""
 
+import os
 from typing import Dict, List, Any
 from modelctx.backends.base import BaseBackend
 

@@ -44,7 +44,7 @@ except RuntimeError as e:
 
 
 @click.group()
-@click.version_option(version="0.1.0", prog_name="mcp-setup")
+@click.version_option(version="0.1.0", prog_name="modelctx")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
 @click.pass_context
 def cli(ctx: click.Context, verbose: bool) -> None:
@@ -73,7 +73,7 @@ def list() -> None:
         )
     
     console.print(table)
-    console.print("\n[dim]Use 'mcp-setup create <name> --backend <type>' to create a project[/dim]")
+    console.print("\n[dim]Use 'modelctx create <name> --backend <type>' to create a project[/dim]")
 
 
 @cli.command()

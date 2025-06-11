@@ -545,13 +545,13 @@ async def _upload_to_s3(client, local_path: str, remote_key: str, bucket: str, m
         # Get uploaded object info
         response = client.head_object(Bucket=bucket, Key=remote_key)
         
-        return {
+        return {{
             "etag": response.get('ETag', '').strip('"'),
             "last_modified": response.get('LastModified', '').isoformat() if response.get('LastModified') else '',
             "content_type": response.get('ContentType', ''),
             "server_side_encryption": response.get('ServerSideEncryption', ''),
             "version_id": response.get('VersionId', '')
-        }
+        }}
     except ClientError as e:
         raise Exception(f"S3 upload error: {{e}}")
 
@@ -563,21 +563,21 @@ async def _download_from_s3(client, remote_key: str, local_path: str, bucket: st
         # Get object metadata
         obj_info = client.head_object(Bucket=bucket, Key=remote_key)
         
-        return {
+        return {{
             "etag": obj_info.get('ETag', '').strip('"'),
             "last_modified": obj_info.get('LastModified', '').isoformat() if obj_info.get('LastModified') else '',
             "content_type": obj_info.get('ContentType', '')
-        }
+        }}
     except ClientError as e:
         raise Exception(f"S3 download error: {{e}}")
 
 async def _list_s3_objects(client, bucket: str, prefix: str, max_keys: int, recursive: bool) -> List[dict]:
     """List objects in S3 bucket."""
     try:
-        kwargs = {
+        kwargs = {{
             'Bucket': bucket,
             'MaxKeys': max_keys
-        }
+        }}
         if prefix:
             kwargs['Prefix'] = prefix
         if not recursive:
@@ -587,13 +587,13 @@ async def _list_s3_objects(client, bucket: str, prefix: str, max_keys: int, recu
         
         objects = []
         for obj in response.get('Contents', []):
-            objects.append({
+            objects.append({{
                 "key": obj['Key'],
                 "size": obj['Size'],
                 "last_modified": obj['LastModified'].isoformat(),
                 "etag": obj['ETag'].strip('"'),
                 "storage_class": obj.get('StorageClass', 'STANDARD')
-            })
+            }})
         
         return objects
     except ClientError as e:
@@ -603,10 +603,10 @@ async def _delete_from_s3(client, remote_key: str, bucket: str) -> dict:
     """Delete object from S3."""
     try:
         response = client.delete_object(Bucket=bucket, Key=remote_key)
-        return {
+        return {{
             "delete_marker": response.get('DeleteMarker', False),
             "version_id": response.get('VersionId', '')
-        }
+        }}
     except ClientError as e:
         raise Exception(f"S3 delete error: {{e}}")
 
@@ -614,7 +614,7 @@ async def _get_s3_object_info(client, remote_key: str, bucket: str) -> dict:
     """Get S3 object information."""
     try:
         response = client.head_object(Bucket=bucket, Key=remote_key)
-        return {
+        return {{
             "size": response.get('ContentLength', 0),
             "last_modified": response.get('LastModified', '').isoformat() if response.get('LastModified') else '',
             "etag": response.get('ETag', '').strip('"'),
@@ -622,7 +622,7 @@ async def _get_s3_object_info(client, remote_key: str, bucket: str) -> dict:
             "metadata": response.get('Metadata', {{}}),
             "storage_class": response.get('StorageClass', 'STANDARD'),
             "server_side_encryption": response.get('ServerSideEncryption', '')
-        }
+        }}
     except ClientError as e:
         if e.response['Error']['Code'] == '404':
             return None
@@ -631,19 +631,19 @@ async def _get_s3_object_info(client, remote_key: str, bucket: str) -> dict:
 async def _generate_s3_presigned_url(client, remote_key: str, bucket: str, expiration: int, operation: str) -> dict:
     """Generate S3 presigned URL."""
     try:
-        method_map = {
+        method_map = {{
             'GET': 'get_object',
             'PUT': 'put_object',
             'DELETE': 'delete_object'
-        }
+        }}
         
         url = client.generate_presigned_url(
             method_map[operation.upper()],
-            Params={'Bucket': bucket, 'Key': remote_key},
+            Params={{'Bucket': bucket, 'Key': remote_key}},
             ExpiresIn=expiration
         )
         
-        return {"presigned_url": url}
+        return {{"presigned_url": url}}
     except ClientError as e:
         raise Exception(f"S3 presigned URL error: {{e}}")
 
@@ -656,15 +656,15 @@ async def _get_s3_bucket_info(client, bucket_name: str) -> dict:
         # Get bucket versioning
         versioning = client.get_bucket_versioning(Bucket=bucket_name)
         
-        return {
+        return {{
             "location": location.get('LocationConstraint', 'us-east-1'),
             "versioning": versioning.get('Status', 'Disabled'),
             "mfa_delete": versioning.get('MfaDelete', 'Disabled'),
             "exists": True
-        }
+        }}
     except ClientError as e:
         if e.response['Error']['Code'] == 'NoSuchBucket':
-            return {"exists": False}
+            return {{"exists": False}}
         raise Exception(f"S3 bucket info error: {{e}}")
 
 # GCS Functions (Google Cloud Storage)
@@ -690,13 +690,13 @@ async def _upload_to_gcs(client, local_path: str, remote_key: str, bucket: str, 
         if public:
             blob.make_public()
         
-        return {
+        return {{
             "etag": blob.etag,
             "last_modified": blob.updated.isoformat() if blob.updated else '',
             "content_type": blob.content_type or '',
             "public_url": blob.public_url if public else '',
             "generation": str(blob.generation)
-        }
+        }}
     except Exception as e:
         raise Exception(f"GCS upload error: {{e}}")
 
@@ -720,12 +720,12 @@ async def _upload_to_azure(client, local_path: str, remote_key: str, container: 
         # Get blob properties
         props = blob_client.get_blob_properties()
         
-        return {
+        return {{
             "etag": props.etag.strip('"'),
             "last_modified": props.last_modified.isoformat(),
             "content_type": props.content_settings.content_type or '',
             "blob_type": props.blob_type
-        }
+        }}
     except Exception as e:
         raise Exception(f"Azure upload error: {{e}}")
 
@@ -778,18 +778,18 @@ async def _check_storage_connection() -> Dict[str, Any]:
             # Try to list containers
             list(client.list_containers())
         
-        return {
+        return {{
             "connected": True,
             "provider": CLOUD_PROVIDER,
             "last_check": datetime.now().isoformat()
-        }
+        }}
     except Exception as e:
-        return {
+        return {{
             "connected": False,
             "provider": CLOUD_PROVIDER,
             "error": str(e),
             "last_check": datetime.now().isoformat()
-        }
+        }}
 '''
     
     def get_cleanup_code(self) -> str:

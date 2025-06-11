@@ -458,7 +458,8 @@ def _validate_table_name(table_name: str) -> bool:
             "DB_TIMEOUT": "Database connection timeout in seconds (optional, default: 30)",
         }
     
-    def get_config_prompts(self) -> List[Dict[str, Any]]:
+    @classmethod
+    def get_config_prompts(cls) -> List[Dict[str, Any]]:
         return [
             {
                 "name": "description",

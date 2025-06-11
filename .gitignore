@@ -163,3 +163,6 @@ build_and_upload_venv.sh
 upload_to_pypi.sh
 upload_to_testpypi.sh
 .pypirc
+final_upload.sh
+build_and_upload_pypi.sh
+upload_manual.sh
