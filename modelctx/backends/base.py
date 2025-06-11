@@ -158,9 +158,9 @@ import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
-from mcp.server.fastmcp import FastMCP
-from mcp.server.session import ServerSession
+from mcp.server import Server
 from mcp.server.stdio import stdio_server
+from mcp.types import Tool, Resource, TextContent, CallToolResult
 {chr(10).join(self.get_imports())}
 
 # Configure logging
@@ -168,7 +168,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Initialize MCP server
-mcp = FastMCP("{self.config.project_name}")
+server = Server("{self.config.project_name}")
 
 {self.get_init_code()}
 
@@ -182,7 +182,8 @@ async def main():
     
     try:
         # Start the server
-        await stdio_server(mcp.app)
+        async with stdio_server() as (read_stream, write_stream):
+            await server.run(read_stream, write_stream, server.create_initialization_options())
     except KeyboardInterrupt:
         logger.info("Server stopped by user")
     except Exception as e:
@@ -198,35 +199,122 @@ if __name__ == "__main__":
         """Generate code for MCP tools."""
         tools = self.get_tools()
         if not tools:
-            return "# No tools defined for this backend"
+            return '''
+# Tool definitions
+@server.list_tools()
+async def list_tools() -> list[Tool]:
+    """List available tools."""
+    return []
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+    """Handle tool calls."""
+    raise ValueError(f"Unknown tool: {name}")
+'''
         
-        code_lines = []
+        # Generate list_tools function
+        tools_list = []
         for tool in tools:
-            code_lines.append(f'''
-@mcp.tool()
-async def {tool["name"]}({tool.get("parameters", "")}) -> {tool.get("return_type", "str")}:
-    """{tool["description"]}"""
-    {tool["implementation"]}
-''')
+            # Use the input_schema from the tool definition if available
+            input_schema = tool.get("input_schema", {
+                "type": "object",
+                "properties": {},
+                "required": []
+            })
+            
+            tools_list.append(f'''
+        Tool(
+            name="{tool["name"]}",
+            description="{tool["description"]}",
+            inputSchema={input_schema}
+        )''')
         
-        return "\n".join(code_lines)
+        # Generate tool implementations
+        tool_implementations = []
+        for tool in tools:
+            tool_implementations.append(f'''
+    elif name == "{tool["name"]}":
+        try:
+            {tool["implementation"]}
+        except Exception as e:
+            logger.error(f"Error in {tool["name"]}: {{e}}")
+            return [TextContent(
+                type="text",
+                text=f"Error: {{str(e)}}"
+            )]''')
+        
+        return f'''
+# Tool definitions
+@server.list_tools()
+async def list_tools() -> list[Tool]:
+    """List available tools."""
+    return [{",".join(tools_list)}
+    ]
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+    """Handle tool calls."""
+    if False:  # Placeholder for first condition
+        pass{''.join(tool_implementations)}
+    else:
+        raise ValueError(f"Unknown tool: {{name}}")
+'''
     
     def _generate_resources_code(self) -> str:
         """Generate code for MCP resources."""
         resources = self.get_resources()
         if not resources:
-            return "# No resources defined for this backend"
+            return '''
+# Resource definitions
+@server.list_resources()
+async def list_resources() -> list[Resource]:
+    """List available resources."""
+    return []
+
+@server.read_resource()
+async def read_resource(uri: str) -> str:
+    """Read a specific resource."""
+    raise ValueError(f"Unknown resource: {uri}")
+'''
         
-        code_lines = []
+        # Generate resources list
+        resources_list = []
         for resource in resources:
-            code_lines.append(f'''
-@mcp.resource("{resource["uri"]}")
-async def {resource["name"]}({resource.get("parameters", "")}) -> str:
-    """{resource["description"]}"""
-    {resource["implementation"]}
-''')
+            resources_list.append(f'''
+        Resource(
+            uri="{resource["uri"]}",
+            name="{resource["name"]}",
+            description="{resource["description"]}",
+            mimeType="text/plain"
+        )''')
         
-        return "\n".join(code_lines)
+        # Generate resource implementations
+        resource_implementations = []
+        for resource in resources:
+            resource_implementations.append(f'''
+    elif uri == "{resource["uri"]}":
+        try:
+            {resource["implementation"]}
+        except Exception as e:
+            logger.error(f"Error reading resource {{uri}}: {{e}}")
+            return f"Error: {{str(e)}}"''')
+        
+        return f'''
+# Resource definitions
+@server.list_resources()
+async def list_resources() -> list[Resource]:
+    """List available resources."""
+    return [{",".join(resources_list)}
+    ]
+
+@server.read_resource()
+async def read_resource(uri: str) -> str:
+    """Read a specific resource."""
+    if False:  # Placeholder for first condition
+        pass{''.join(resource_implementations)}
+    else:
+        raise ValueError(f"Unknown resource: {{uri}}")
+'''
     
     def generate_config_file(self) -> str:
         """Generate YAML configuration file."""
@@ -271,7 +359,7 @@ async def {resource["name"]}({resource.get("parameters", "")}) -> str:
     
     def generate_requirements(self) -> str:
         """Generate requirements.txt content."""
-        deps = ["mcp>=1.0.0"] + self.config.dependencies
+        deps = ["mcp>=0.9.0"] + self.config.dependencies
         return "\n".join(sorted(deps))
     
     def generate_claude_desktop_config(self) -> Dict[str, Any]:

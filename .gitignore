@@ -166,3 +166,7 @@ upload_to_testpypi.sh
 final_upload.sh
 build_and_upload_pypi.sh
 upload_manual.sh
+
+
+# MCP Servers specific
+# mcp-servers/

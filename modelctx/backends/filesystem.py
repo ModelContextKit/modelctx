@@ -31,50 +31,96 @@ class FilesystemBackend(BaseBackend):
                 "name": "read_file",
                 "description": "Read contents of a file with security checks",
                 "parameters": "file_path: str, encoding: str = 'utf-8', max_size: int = None",
-                "return_type": "dict",
-                "implementation": '''
+                "return_type": "list[TextContent]",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "Path to the file to read"
+                        },
+                        "encoding": {
+                            "type": "string",
+                            "description": "File encoding (default: utf-8)",
+                            "default": "utf-8"
+                        },
+                        "max_size": {
+                            "type": "integer",
+                            "description": "Maximum file size in bytes"
+                        }
+                    },
+                    "required": ["file_path"]
+                },
+                "implementation": '''file_path = arguments.get("file_path", "")
+    encoding = arguments.get("encoding", "utf-8")
+    max_size = arguments.get("max_size")
+    
     try:
         logger.info(f"Reading file: {file_path}")
         
         # Validate and resolve file path
         safe_path = await _validate_and_resolve_path(file_path)
         if not safe_path:
-            raise ValueError(f"Access denied or invalid path: {file_path}")
+            result_data = {
+                "success": False,
+                "error": f"Access denied or invalid path: {file_path}",
+                "path": file_path
+            }
+            return [TextContent(
+                type="text",
+                text=json.dumps(result_data, indent=2)
+            )]
         
         # Check if file exists and is a file
         if not safe_path.exists():
-            return {
+            result_data = {
                 "success": False,
                 "error": f"File not found: {file_path}",
                 "path": str(safe_path)
             }
+            return [TextContent(
+                type="text",
+                text=json.dumps(result_data, indent=2)
+            )]
         
         if not safe_path.is_file():
-            return {
+            result_data = {
                 "success": False,
                 "error": f"Path is not a file: {file_path}",
                 "path": str(safe_path)
             }
+            return [TextContent(
+                type="text",
+                text=json.dumps(result_data, indent=2)
+            )]
         
         # Check file size
         file_size = safe_path.stat().st_size
         max_file_size = max_size or MAX_FILE_SIZE
         
         if file_size > max_file_size:
-            return {
+            result_data = {
                 "success": False,
                 "error": f"File too large: {file_size} bytes (max: {max_file_size})",
                 "size": file_size,
                 "max_size": max_file_size
             }
+            return [TextContent(
+                type="text",
+                text=json.dumps(result_data, indent=2)
+            )]
         
         # Check file type
         if not await _is_allowed_file_type(safe_path):
-            return {
+            result_data = {
                 "success": False,
                 "error": f"File type not allowed: {safe_path.suffix}",
                 "path": str(safe_path)
             }
+            return [TextContent(
+                type="text",
+                text=json.dumps(result_data, indent=2)
+            )]
         
         # Read file content
         try:
@@ -87,7 +133,7 @@ class FilesystemBackend(BaseBackend):
                 content = base64.b64encode(binary_content).decode('utf-8')
                 encoding = 'base64'
         
-        return {
+        result_data = {
             "success": True,
             "content": content,
             "encoding": encoding,
@@ -96,46 +142,98 @@ class FilesystemBackend(BaseBackend):
             "modified": safe_path.stat().st_mtime,
             "mime_type": await _get_mime_type(safe_path)
         }
+        return [TextContent(
+            type="text",
+            text=json.dumps(result_data, indent=2)
+        )]
         
     except Exception as e:
         logger.error(f"File read error: {e}")
-        return {
+        result_data = {
             "success": False,
             "error": str(e),
             "path": file_path
         }
+        return [TextContent(
+            type="text",
+            text=json.dumps(result_data, indent=2)
+        )]
 '''
             },
             {
                 "name": "write_file",
                 "description": "Write content to a file with security checks",
                 "parameters": "file_path: str, content: str, encoding: str = 'utf-8', create_dirs: bool = False",
-                "return_type": "dict",
-                "implementation": '''
+                "return_type": "list[TextContent]",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "Path to the file to write"
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "Content to write to the file"
+                        },
+                        "encoding": {
+                            "type": "string",
+                            "description": "File encoding (default: utf-8)",
+                            "default": "utf-8"
+                        },
+                        "create_dirs": {
+                            "type": "boolean",
+                            "description": "Create parent directories if they don't exist",
+                            "default": false
+                        }
+                    },
+                    "required": ["file_path", "content"]
+                },
+                "implementation": '''file_path = arguments.get("file_path", "")
+    content = arguments.get("content", "")
+    encoding = arguments.get("encoding", "utf-8")
+    create_dirs = arguments.get("create_dirs", False)
+    
     try:
         logger.info(f"Writing file: {file_path}")
         
         # Check if filesystem is read-only
         if READ_ONLY_MODE:
-            return {
+            result_data = {
                 "success": False,
                 "error": "Filesystem is in read-only mode",
                 "path": file_path
             }
+            return [TextContent(
+                type="text",
+                text=json.dumps(result_data, indent=2)
+            )]
         
         # Validate and resolve file path
         safe_path = await _validate_and_resolve_path(file_path, allow_create=True)
         if not safe_path:
-            raise ValueError(f"Access denied or invalid path: {file_path}")
+            result_data = {
+                "success": False,
+                "error": f"Access denied or invalid path: {file_path}",
+                "path": file_path
+            }
+            return [TextContent(
+                type="text",
+                text=json.dumps(result_data, indent=2)
+            )]
         
         # Check if we can write to parent directory
         parent_dir = safe_path.parent
         if not parent_dir.exists() and not create_dirs:
-            return {
+            result_data = {
                 "success": False,
                 "error": f"Parent directory does not exist: {parent_dir}",
                 "path": str(safe_path)
             }
+            return [TextContent(
+                type="text",
+                text=json.dumps(result_data, indent=2)
+            )]
         
         # Create parent directories if requested
         if create_dirs and not parent_dir.exists():
@@ -144,21 +242,29 @@ class FilesystemBackend(BaseBackend):
         
         # Check file extension
         if not await _is_allowed_file_type(safe_path):
-            return {
+            result_data = {
                 "success": False,
                 "error": f"File type not allowed: {safe_path.suffix}",
                 "path": str(safe_path)
             }
+            return [TextContent(
+                type="text",
+                text=json.dumps(result_data, indent=2)
+            )]
         
         # Check content size
         content_size = len(content.encode(encoding))
         if content_size > MAX_FILE_SIZE:
-            return {
+            result_data = {
                 "success": False,
                 "error": f"Content too large: {content_size} bytes (max: {MAX_FILE_SIZE})",
                 "size": content_size,
                 "max_size": MAX_FILE_SIZE
             }
+            return [TextContent(
+                type="text",
+                text=json.dumps(result_data, indent=2)
+            )]
         
         # Handle different encodings
         if encoding == 'base64':
@@ -177,7 +283,7 @@ class FilesystemBackend(BaseBackend):
         # Get file stats
         file_stats = safe_path.stat()
         
-        return {
+        result_data = {
             "success": True,
             "path": str(safe_path),
             "size": file_stats.st_size,
@@ -185,44 +291,97 @@ class FilesystemBackend(BaseBackend):
             "encoding": encoding,
             "modified": file_stats.st_mtime
         }
+        return [TextContent(
+            type="text",
+            text=json.dumps(result_data, indent=2)
+        )]
         
     except Exception as e:
         logger.error(f"File write error: {e}")
-        return {
+        result_data = {
             "success": False,
             "error": str(e),
             "path": file_path
         }
+        return [TextContent(
+            type="text",
+            text=json.dumps(result_data, indent=2)
+        )]
 '''
             },
             {
                 "name": "list_directory",
                 "description": "List contents of a directory with metadata",
                 "parameters": "dir_path: str, include_hidden: bool = False, recursive: bool = False, max_depth: int = 3",
-                "return_type": "dict",
-                "implementation": '''
+                "return_type": "list[TextContent]",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "dir_path": {
+                            "type": "string",
+                            "description": "Path to the directory to list"
+                        },
+                        "include_hidden": {
+                            "type": "boolean",
+                            "description": "Include hidden files and directories",
+                            "default": false
+                        },
+                        "recursive": {
+                            "type": "boolean",
+                            "description": "List directory contents recursively",
+                            "default": false
+                        },
+                        "max_depth": {
+                            "type": "integer",
+                            "description": "Maximum depth for recursive listing",
+                            "default": 3
+                        }
+                    },
+                    "required": ["dir_path"]
+                },
+                "implementation": '''dir_path = arguments.get("dir_path", "")
+    include_hidden = arguments.get("include_hidden", False)
+    recursive = arguments.get("recursive", False)
+    max_depth = arguments.get("max_depth", 3)
+    
     try:
         logger.info(f"Listing directory: {dir_path}")
         
         # Validate and resolve directory path
         safe_path = await _validate_and_resolve_path(dir_path)
         if not safe_path:
-            raise ValueError(f"Access denied or invalid path: {dir_path}")
+            result_data = {
+                "success": False,
+                "error": f"Access denied or invalid path: {dir_path}",
+                "path": dir_path
+            }
+            return [TextContent(
+                type="text",
+                text=json.dumps(result_data, indent=2)
+            )]
         
         # Check if path exists and is a directory
         if not safe_path.exists():
-            return {
+            result_data = {
                 "success": False,
                 "error": f"Directory not found: {dir_path}",
                 "path": str(safe_path)
             }
+            return [TextContent(
+                type="text",
+                text=json.dumps(result_data, indent=2)
+            )]
         
         if not safe_path.is_dir():
-            return {
+            result_data = {
                 "success": False,
                 "error": f"Path is not a directory: {dir_path}",
                 "path": str(safe_path)
             }
+            return [TextContent(
+                type="text",
+                text=json.dumps(result_data, indent=2)
+            )]
         
         # List directory contents
         items = []
@@ -243,7 +402,7 @@ class FilesystemBackend(BaseBackend):
         # Sort items by type (directories first) then by name
         items.sort(key=lambda x: (x['type'] != 'directory', x['name'].lower()))
         
-        return {
+        result_data = {
             "success": True,
             "path": str(safe_path),
             "items": items,
@@ -251,36 +410,84 @@ class FilesystemBackend(BaseBackend):
             "recursive": recursive,
             "include_hidden": include_hidden
         }
+        return [TextContent(
+            type="text",
+            text=json.dumps(result_data, indent=2)
+        )]
         
     except Exception as e:
         logger.error(f"Directory listing error: {e}")
-        return {
+        result_data = {
             "success": False,
             "error": str(e),
             "path": dir_path
         }
+        return [TextContent(
+            type="text",
+            text=json.dumps(result_data, indent=2)
+        )]
 '''
             },
             {
                 "name": "search_files",
                 "description": "Search for files by name pattern and content",
                 "parameters": "directory: str, pattern: str, search_content: bool = False, max_results: int = 100",
-                "return_type": "dict",
-                "implementation": '''
+                "return_type": "list[TextContent]",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "directory": {
+                            "type": "string",
+                            "description": "Directory to search in"
+                        },
+                        "pattern": {
+                            "type": "string",
+                            "description": "Search pattern (glob or regex)"
+                        },
+                        "search_content": {
+                            "type": "boolean",
+                            "description": "Search file contents in addition to names",
+                            "default": false
+                        },
+                        "max_results": {
+                            "type": "integer",
+                            "description": "Maximum number of results to return",
+                            "default": 100
+                        }
+                    },
+                    "required": ["directory", "pattern"]
+                },
+                "implementation": '''directory = arguments.get("directory", "")
+    pattern = arguments.get("pattern", "")
+    search_content = arguments.get("search_content", False)
+    max_results = arguments.get("max_results", 100)
+    
     try:
         logger.info(f"Searching files in {directory} with pattern: {pattern}")
         
         # Validate and resolve directory path
         safe_path = await _validate_and_resolve_path(directory)
         if not safe_path:
-            raise ValueError(f"Access denied or invalid path: {directory}")
+            result_data = {
+                "success": False,
+                "error": f"Access denied or invalid path: {directory}",
+                "path": directory
+            }
+            return [TextContent(
+                type="text",
+                text=json.dumps(result_data, indent=2)
+            )]
         
         if not safe_path.exists() or not safe_path.is_dir():
-            return {
+            result_data = {
                 "success": False,
                 "error": f"Invalid directory: {directory}",
                 "path": str(safe_path)
             }
+            return [TextContent(
+                type="text",
+                text=json.dumps(result_data, indent=2)
+            )]
         
         # Compile pattern for filename matching
         import fnmatch
@@ -333,7 +540,7 @@ class FilesystemBackend(BaseBackend):
                     })
                     results.append(item_info)
         
-        return {
+        result_data = {
             "success": True,
             "results": results,
             "pattern": pattern,
@@ -344,111 +551,207 @@ class FilesystemBackend(BaseBackend):
             "max_results": max_results,
             "truncated": len(results) >= max_results
         }
+        return [TextContent(
+            type="text",
+            text=json.dumps(result_data, indent=2)
+        )]
         
     except Exception as e:
         logger.error(f"File search error: {e}")
-        return {
+        result_data = {
             "success": False,
             "error": str(e),
             "directory": directory,
             "pattern": pattern
         }
+        return [TextContent(
+            type="text",
+            text=json.dumps(result_data, indent=2)
+        )]
 '''
             },
             {
                 "name": "create_directory",
                 "description": "Create a new directory with proper permissions",
                 "parameters": "dir_path: str, parents: bool = True",
-                "return_type": "dict",
-                "implementation": '''
+                "return_type": "list[TextContent]",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "dir_path": {
+                            "type": "string",
+                            "description": "Path to the directory to create"
+                        },
+                        "parents": {
+                            "type": "boolean",
+                            "description": "Create parent directories if they don't exist",
+                            "default": true
+                        }
+                    },
+                    "required": ["dir_path"]
+                },
+                "implementation": '''dir_path = arguments.get("dir_path", "")
+    parents = arguments.get("parents", True)
+    
     try:
         logger.info(f"Creating directory: {dir_path}")
         
         # Check if filesystem is read-only
         if READ_ONLY_MODE:
-            return {
+            result_data = {
                 "success": False,
                 "error": "Filesystem is in read-only mode",
                 "path": dir_path
             }
+            return [TextContent(
+                type="text",
+                text=json.dumps(result_data, indent=2)
+            )]
         
         # Validate and resolve directory path
         safe_path = await _validate_and_resolve_path(dir_path, allow_create=True)
         if not safe_path:
-            raise ValueError(f"Access denied or invalid path: {dir_path}")
+            result_data = {
+                "success": False,
+                "error": f"Access denied or invalid path: {dir_path}",
+                "path": dir_path
+            }
+            return [TextContent(
+                type="text",
+                text=json.dumps(result_data, indent=2)
+            )]
         
         # Check if directory already exists
         if safe_path.exists():
             if safe_path.is_dir():
-                return {
+                result_data = {
                     "success": True,
                     "path": str(safe_path),
                     "created": False,
                     "message": "Directory already exists"
                 }
+                return [TextContent(
+                    type="text",
+                    text=json.dumps(result_data, indent=2)
+                )]
             else:
-                return {
+                result_data = {
                     "success": False,
                     "error": f"Path exists but is not a directory: {dir_path}",
                     "path": str(safe_path)
                 }
+                return [TextContent(
+                    type="text",
+                    text=json.dumps(result_data, indent=2)
+                )]
         
         # Create directory
         safe_path.mkdir(parents=parents, exist_ok=True)
         
-        return {
+        result_data = {
             "success": True,
             "path": str(safe_path),
             "created": True,
             "parents": parents
         }
+        return [TextContent(
+            type="text",
+            text=json.dumps(result_data, indent=2)
+        )]
         
     except Exception as e:
         logger.error(f"Directory creation error: {e}")
-        return {
+        result_data = {
             "success": False,
             "error": str(e),
             "path": dir_path
         }
+        return [TextContent(
+            type="text",
+            text=json.dumps(result_data, indent=2)
+        )]
 '''
             },
             {
                 "name": "delete_file",
                 "description": "Delete a file or directory with confirmation",
                 "parameters": "path: str, recursive: bool = False, confirm: bool = True",
-                "return_type": "dict",
-                "implementation": '''
+                "return_type": "list[TextContent]",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Path to the file or directory to delete"
+                        },
+                        "recursive": {
+                            "type": "boolean",
+                            "description": "Delete directories recursively",
+                            "default": false
+                        },
+                        "confirm": {
+                            "type": "boolean",
+                            "description": "Require confirmation for dangerous operations",
+                            "default": true
+                        }
+                    },
+                    "required": ["path"]
+                },
+                "implementation": '''path = arguments.get("path", "")
+    recursive = arguments.get("recursive", False)
+    confirm = arguments.get("confirm", True)
+    
     try:
         logger.info(f"Deleting: {path}")
         
         # Check if filesystem is read-only
         if READ_ONLY_MODE:
-            return {
+            result_data = {
                 "success": False,
                 "error": "Filesystem is in read-only mode",
                 "path": path
             }
+            return [TextContent(
+                type="text",
+                text=json.dumps(result_data, indent=2)
+            )]
         
         # Validate and resolve path
         safe_path = await _validate_and_resolve_path(path)
         if not safe_path:
-            raise ValueError(f"Access denied or invalid path: {path}")
+            result_data = {
+                "success": False,
+                "error": f"Access denied or invalid path: {path}",
+                "path": path
+            }
+            return [TextContent(
+                type="text",
+                text=json.dumps(result_data, indent=2)
+            )]
         
         # Check if path exists
         if not safe_path.exists():
-            return {
+            result_data = {
                 "success": False,
                 "error": f"Path not found: {path}",
                 "path": str(safe_path)
             }
+            return [TextContent(
+                type="text",
+                text=json.dumps(result_data, indent=2)
+            )]
         
         # Safety check - require confirmation for dangerous operations
         if confirm and not await _confirm_deletion(safe_path):
-            return {
+            result_data = {
                 "success": False,
                 "error": "Deletion not confirmed or path is protected",
                 "path": str(safe_path)
             }
+            return [TextContent(
+                type="text",
+                text=json.dumps(result_data, indent=2)
+            )]
         
         # Get info before deletion
         was_directory = safe_path.is_dir()
@@ -465,30 +768,42 @@ class FilesystemBackend(BaseBackend):
                 try:
                     safe_path.rmdir()
                 except OSError:
-                    return {
+                    result_data = {
                         "success": False,
                         "error": "Directory not empty (use recursive=True to force)",
                         "path": str(safe_path)
                     }
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps(result_data, indent=2)
+                    )]
         else:
             safe_path.unlink()
             file_count = 1
         
-        return {
+        result_data = {
             "success": True,
             "path": str(safe_path),
             "was_directory": was_directory,
             "files_deleted": file_count,
             "recursive": recursive
         }
+        return [TextContent(
+            type="text",
+            text=json.dumps(result_data, indent=2)
+        )]
         
     except Exception as e:
         logger.error(f"Deletion error: {e}")
-        return {
+        result_data = {
             "success": False,
             "error": str(e),
             "path": path
         }
+        return [TextContent(
+            type="text",
+            text=json.dumps(result_data, indent=2)
+        )]
 '''
             }
         ]

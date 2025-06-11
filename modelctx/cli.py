@@ -39,7 +39,7 @@ def _validate_backend_sync():
 try:
     _validate_backend_sync()
 except RuntimeError as e:
-    console.print(f"[red]❌ {e}[/red]")
+    console.print(f"[red]ERROR: {e}[/red]")
     sys.exit(1)
 
 
@@ -58,7 +58,7 @@ def cli(ctx: click.Context, verbose: bool) -> None:
 @cli.command()
 def list() -> None:
     """List all available backend types."""
-    console.print("\n[bold blue]🚀 Available MCP Backend Types[/bold blue]\n")
+    console.print("\n[bold blue]Available MCP Backend Types[/bold blue]\n")
     
     table = Table(show_header=True, header_style="bold magenta")
     table.add_column("Backend", style="cyan", width=15)
@@ -104,16 +104,16 @@ def create(
     
     # Validate project name
     if not validate_project_name(project_name):
-        console.print("[red]❌ Invalid project name. Use alphanumeric characters, hyphens, and underscores only.[/red]")
+        console.print("[red]ERROR: Invalid project name. Use alphanumeric characters, hyphens, and underscores only.[/red]")
         sys.exit(1)
     
     # Check if project already exists
     project_path = Path(output_dir) / project_name
     if project_path.exists() and not force:
-        console.print(f"[red]❌ Project '{project_name}' already exists. Use --force to overwrite.[/red]")
+        console.print(f"[red]ERROR: Project '{project_name}' already exists. Use --force to overwrite.[/red]")
         sys.exit(1)
     
-    console.print(f"\n[bold green]🎯 Creating MCP server: {project_name}[/bold green]")
+    console.print(f"\n[bold green]Creating MCP server: {project_name}[/bold green]")
     console.print(f"[dim]Backend: {backend}[/dim]")
     console.print(f"[dim]Output: {project_path.absolute()}[/dim]\n")
     
@@ -134,19 +134,19 @@ def create(
         with console.status("[bold green]Generating project..."):
             generator.generate()
         
-        console.print("[green]✅ Project structure created successfully![/green]")
+        console.print("[green]SUCCESS: Project structure created successfully![/green]")
         
         # Install dependencies unless skipped
         if not no_install:
             with console.status("[bold yellow]Installing dependencies..."):
                 generator.install_dependencies()
-            console.print("[green]✅ Dependencies installed successfully![/green]")
+            console.print("[green]SUCCESS: Dependencies installed successfully![/green]")
         
         # Show next steps
         _show_next_steps(project_name, project_path)
         
     except Exception as e:
-        console.print(f"[red]❌ Error creating project: {e}[/red]")
+        console.print(f"[red]ERROR: Error creating project: {e}[/red]")
         if verbose:
             console.print_exception()
         sys.exit(1)
@@ -160,7 +160,7 @@ def wizard(ctx: click.Context, output_dir: str) -> None:
     verbose = ctx.obj.get("verbose", False)
     
     console.print(Panel.fit(
-        "[bold blue]🎯 MCP Server Creation Wizard[/bold blue]\n"
+        "[bold blue] MCP Server Creation Wizard[/bold blue]\n"
         "[dim]This wizard will guide you through creating a new MCP server project.[/dim]",
         border_style="blue"
     ))
@@ -182,27 +182,27 @@ def wizard(ctx: click.Context, output_dir: str) -> None:
         generator.set_config(config)
         
         # Generate project
-        console.print("\n[bold green]🚀 Generating your MCP server...[/bold green]")
+        console.print("\n[bold green] Generating your MCP server...[/bold green]")
         with console.status("[bold green]Creating project files..."):
             generator.generate()
         
-        console.print("[green]✅ Project created successfully![/green]")
+        console.print("[green]SUCCESS: Project created successfully![/green]")
         
         # Install dependencies
         if config.install_dependencies:
             with console.status("[bold yellow]Installing dependencies..."):
                 generator.install_dependencies()
-            console.print("[green]✅ Dependencies installed![/green]")
+            console.print("[green]SUCCESS: Dependencies installed![/green]")
         
         # Show next steps
         project_path = Path(output_dir) / config.project_name
         _show_next_steps(config.project_name, project_path)
         
     except KeyboardInterrupt:
-        console.print("\n[yellow]⚠️ Wizard cancelled by user.[/yellow]")
+        console.print("\n[yellow]WARNING: Wizard cancelled by user.[/yellow]")
         sys.exit(0)
     except Exception as e:
-        console.print(f"\n[red]❌ Error during wizard: {e}[/red]")
+        console.print(f"\n[red]ERROR: Error during wizard: {e}[/red]")
         if verbose:
             console.print_exception()
         sys.exit(1)
@@ -230,12 +230,12 @@ def docs(project_path: str) -> None:
     """Generate documentation for an MCP server project."""
     project = Path(project_path)
     if not project.exists():
-        console.print(f"[red]❌ Project not found: {project_path}[/red]")
+        console.print(f"[red]ERROR: Project not found: {project_path}[/red]")
         sys.exit(1)
     
-    console.print(f"[blue]📚 Generating documentation for {project.name}...[/blue]")
+    console.print(f"[blue]Generating documentation for {project.name}...[/blue]")
     # TODO: Implement documentation generation
-    console.print("[green]✅ Documentation generated![/green]")
+    console.print("[green]Documentation generated![/green]")
 
 
 @cli.command()
@@ -243,15 +243,15 @@ def docs(project_path: str) -> None:
 @click.option("--target", default="local", help="Deployment target (local, docker, cloud)")
 def deploy(project_name: str, target: str) -> None:
     """Deploy an MCP server project."""
-    console.print(f"[blue]🚀 Deploying {project_name} to {target}...[/blue]")
+    console.print(f"[blue]Deploying {project_name} to {target}...[/blue]")
     # TODO: Implement deployment functionality
-    console.print("[green]✅ Deployment completed![/green]")
+    console.print("[green]Deployment completed![/green]")
 
 
 def _show_next_steps(project_name: str, project_path: Path) -> None:
     """Show next steps after project creation."""
     next_steps = Text()
-    next_steps.append("🎉 Next Steps:\n\n", style="bold green")
+    next_steps.append("Next Steps:\n\n", style="bold green")
     next_steps.append(f"1. Navigate to your project:\n   cd {project_path}\n\n", style="cyan")
     next_steps.append("2. Configure your settings:\n   Edit config/config.yaml and .env\n\n", style="cyan")
     next_steps.append("3. Test your server:\n   python server.py\n\n", style="cyan")
@@ -267,7 +267,7 @@ def _show_next_steps(project_name: str, project_path: Path) -> None:
 
 def _list_templates() -> None:
     """List available templates."""
-    console.print("\n[bold blue]📋 Available Templates[/bold blue]\n")
+    console.print("\n[bold blue]Available Templates[/bold blue]\n")
     
     table = Table(show_header=True, header_style="bold magenta")
     table.add_column("Template", style="cyan")
@@ -289,16 +289,16 @@ def _list_templates() -> None:
 
 def _add_template(template_path: str) -> None:
     """Add a custom template."""
-    console.print(f"[blue]➕ Adding template from: {template_path}[/blue]")
+    console.print(f"[blue]Adding template from: {template_path}[/blue]")
     # TODO: Implement custom template addition
-    console.print("[green]✅ Template added successfully![/green]")
+    console.print("[green]Template added successfully![/green]")
 
 
 def _remove_template(template_name: str) -> None:
     """Remove a custom template."""
-    console.print(f"[blue]➖ Removing template: {template_name}[/blue]")
+    console.print(f"[blue]Removing template: {template_name}[/blue]")
     # TODO: Implement custom template removal
-    console.print("[green]✅ Template removed successfully![/green]")
+    console.print("[green]Template removed successfully![/green]")
 
 
 def main() -> None:
@@ -306,10 +306,10 @@ def main() -> None:
     try:
         cli()
     except KeyboardInterrupt:
-        console.print("\n[yellow]⚠️ Operation cancelled by user.[/yellow]")
+        console.print("\n[yellow]Operation cancelled by user.[/yellow]")
         sys.exit(0)
     except Exception as e:
-        console.print(f"[red]❌ Unexpected error: {e}[/red]")
+        console.print(f"[red]ERROR: Unexpected error: {e}[/red]")
         sys.exit(1)
 
 
