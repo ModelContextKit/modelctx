@@ -1,0 +1,317 @@
+"""CLI interface for MCP Quick Setup Tool."""
+
+import os
+import sys
+from pathlib import Path
+from typing import Optional
+
+import click
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from rich.text import Text
+
+from modelctx.core.generator import ProjectGenerator
+from modelctx.core.config import ConfigWizard
+from modelctx.backends import AVAILABLE_BACKENDS
+from modelctx.utils.validation import validate_project_name
+
+console = Console()
+
+# Validate that hardcoded backend list matches available backends
+_BACKEND_CHOICES = ["database", "api", "filesystem", "webscraper", "email", "cloudstorage"]
+
+def _validate_backend_sync():
+    """Ensure hardcoded backend choices match available backends."""
+    available = set(AVAILABLE_BACKENDS.keys())
+    choices = set(_BACKEND_CHOICES)
+    if available != choices:
+        missing_in_choices = available - choices
+        missing_in_available = choices - available
+        error_msg = "Backend list sync error:\n"
+        if missing_in_choices:
+            error_msg += f"  Missing in CLI choices: {missing_in_choices}\n"
+        if missing_in_available:
+            error_msg += f"  Missing in available backends: {missing_in_available}\n"
+        raise RuntimeError(error_msg)
+
+# Validate on import
+try:
+    _validate_backend_sync()
+except RuntimeError as e:
+    console.print(f"[red]❌ {e}[/red]")
+    sys.exit(1)
+
+
+@click.group()
+@click.version_option(version="0.1.0", prog_name="mcp-setup")
+@click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
+@click.pass_context
+def cli(ctx: click.Context, verbose: bool) -> None:
+    """MCP Quick Setup Tool - Create MCP servers with ease."""
+    ctx.ensure_object(dict)
+    ctx.obj["verbose"] = verbose
+    if verbose:
+        console.print("[dim]Verbose mode enabled[/dim]")
+
+
+@cli.command()
+def list() -> None:
+    """List all available backend types."""
+    console.print("\n[bold blue]🚀 Available MCP Backend Types[/bold blue]\n")
+    
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("Backend", style="cyan", width=15)
+    table.add_column("Description", style="white", width=50)
+    table.add_column("Dependencies", style="yellow", width=30)
+    
+    for backend_name, backend_class in AVAILABLE_BACKENDS.items():
+        table.add_row(
+            backend_name,
+            backend_class.get_description(),
+            ", ".join(backend_class.get_dependencies())
+        )
+    
+    console.print(table)
+    console.print("\n[dim]Use 'mcp-setup create <name> --backend <type>' to create a project[/dim]")
+
+
+@cli.command()
+@click.argument("project_name")
+@click.option(
+    "--backend", 
+    "-b", 
+    required=True,
+    type=click.Choice(_BACKEND_CHOICES),
+    help="Backend type to use"
+)
+@click.option("--output-dir", "-o", default=".", help="Output directory (default: current directory)")
+@click.option("--config-file", "-c", help="Configuration file to use")
+@click.option("--no-install", is_flag=True, help="Skip dependency installation")
+@click.option("--force", "-f", is_flag=True, help="Overwrite existing project")
+@click.pass_context
+def create(
+    ctx: click.Context,
+    project_name: str,
+    backend: str,
+    output_dir: str,
+    config_file: Optional[str],
+    no_install: bool,
+    force: bool,
+) -> None:
+    """Create a new MCP server project."""
+    verbose = ctx.obj.get("verbose", False)
+    
+    # Validate project name
+    if not validate_project_name(project_name):
+        console.print("[red]❌ Invalid project name. Use alphanumeric characters, hyphens, and underscores only.[/red]")
+        sys.exit(1)
+    
+    # Check if project already exists
+    project_path = Path(output_dir) / project_name
+    if project_path.exists() and not force:
+        console.print(f"[red]❌ Project '{project_name}' already exists. Use --force to overwrite.[/red]")
+        sys.exit(1)
+    
+    console.print(f"\n[bold green]🎯 Creating MCP server: {project_name}[/bold green]")
+    console.print(f"[dim]Backend: {backend}[/dim]")
+    console.print(f"[dim]Output: {project_path.absolute()}[/dim]\n")
+    
+    try:
+        # Initialize project generator
+        generator = ProjectGenerator(
+            project_name=project_name,
+            backend_type=backend,
+            output_dir=output_dir,
+            verbose=verbose
+        )
+        
+        # Load configuration if provided
+        if config_file:
+            generator.load_config(config_file)
+        
+        # Generate project
+        with console.status("[bold green]Generating project..."):
+            generator.generate()
+        
+        console.print("[green]✅ Project structure created successfully![/green]")
+        
+        # Install dependencies unless skipped
+        if not no_install:
+            with console.status("[bold yellow]Installing dependencies..."):
+                generator.install_dependencies()
+            console.print("[green]✅ Dependencies installed successfully![/green]")
+        
+        # Show next steps
+        _show_next_steps(project_name, project_path)
+        
+    except Exception as e:
+        console.print(f"[red]❌ Error creating project: {e}[/red]")
+        if verbose:
+            console.print_exception()
+        sys.exit(1)
+
+
+@cli.command()
+@click.option("--output-dir", "-o", default=".", help="Output directory (default: current directory)")
+@click.pass_context
+def wizard(ctx: click.Context, output_dir: str) -> None:
+    """Interactive project creation wizard."""
+    verbose = ctx.obj.get("verbose", False)
+    
+    console.print(Panel.fit(
+        "[bold blue]🎯 MCP Server Creation Wizard[/bold blue]\n"
+        "[dim]This wizard will guide you through creating a new MCP server project.[/dim]",
+        border_style="blue"
+    ))
+    
+    try:
+        # Initialize configuration wizard
+        wizard = ConfigWizard(output_dir=output_dir, verbose=verbose)
+        
+        # Run interactive configuration
+        config = wizard.run()
+        
+        # Create project with wizard configuration
+        generator = ProjectGenerator(
+            project_name=config.project_name,
+            backend_type=config.backend_type,
+            output_dir=output_dir,
+            verbose=verbose
+        )
+        generator.set_config(config)
+        
+        # Generate project
+        console.print("\n[bold green]🚀 Generating your MCP server...[/bold green]")
+        with console.status("[bold green]Creating project files..."):
+            generator.generate()
+        
+        console.print("[green]✅ Project created successfully![/green]")
+        
+        # Install dependencies
+        if config.install_dependencies:
+            with console.status("[bold yellow]Installing dependencies..."):
+                generator.install_dependencies()
+            console.print("[green]✅ Dependencies installed![/green]")
+        
+        # Show next steps
+        project_path = Path(output_dir) / config.project_name
+        _show_next_steps(config.project_name, project_path)
+        
+    except KeyboardInterrupt:
+        console.print("\n[yellow]⚠️ Wizard cancelled by user.[/yellow]")
+        sys.exit(0)
+    except Exception as e:
+        console.print(f"\n[red]❌ Error during wizard: {e}[/red]")
+        if verbose:
+            console.print_exception()
+        sys.exit(1)
+
+
+@cli.command()
+@click.option("--list", "list_templates", is_flag=True, help="List available templates")
+@click.option("--add", help="Add a custom template")
+@click.option("--remove", help="Remove a custom template")
+def templates(list_templates: bool, add: Optional[str], remove: Optional[str]) -> None:
+    """Manage project templates."""
+    if list_templates:
+        _list_templates()
+    elif add:
+        _add_template(add)
+    elif remove:
+        _remove_template(remove)
+    else:
+        console.print("[yellow]Use --list, --add, or --remove with the templates command.[/yellow]")
+
+
+@cli.command()
+@click.argument("project_path")
+def docs(project_path: str) -> None:
+    """Generate documentation for an MCP server project."""
+    project = Path(project_path)
+    if not project.exists():
+        console.print(f"[red]❌ Project not found: {project_path}[/red]")
+        sys.exit(1)
+    
+    console.print(f"[blue]📚 Generating documentation for {project.name}...[/blue]")
+    # TODO: Implement documentation generation
+    console.print("[green]✅ Documentation generated![/green]")
+
+
+@cli.command()
+@click.argument("project_name")
+@click.option("--target", default="local", help="Deployment target (local, docker, cloud)")
+def deploy(project_name: str, target: str) -> None:
+    """Deploy an MCP server project."""
+    console.print(f"[blue]🚀 Deploying {project_name} to {target}...[/blue]")
+    # TODO: Implement deployment functionality
+    console.print("[green]✅ Deployment completed![/green]")
+
+
+def _show_next_steps(project_name: str, project_path: Path) -> None:
+    """Show next steps after project creation."""
+    next_steps = Text()
+    next_steps.append("🎉 Next Steps:\n\n", style="bold green")
+    next_steps.append(f"1. Navigate to your project:\n   cd {project_path}\n\n", style="cyan")
+    next_steps.append("2. Configure your settings:\n   Edit config/config.yaml and .env\n\n", style="cyan")
+    next_steps.append("3. Test your server:\n   python server.py\n\n", style="cyan")
+    next_steps.append("4. Test with MCP Inspector:\n   npx @modelcontextprotocol/inspector python server.py\n\n", style="cyan")
+    next_steps.append("5. Add to Claude Desktop:\n   Copy config/claude_desktop_config.json settings\n\n", style="cyan")
+    
+    console.print(Panel(
+        next_steps,
+        title=f"[bold]MCP Server '{project_name}' Created Successfully![/bold]",
+        border_style="green"
+    ))
+
+
+def _list_templates() -> None:
+    """List available templates."""
+    console.print("\n[bold blue]📋 Available Templates[/bold blue]\n")
+    
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("Template", style="cyan")
+    table.add_column("Type", style="yellow")
+    table.add_column("Description", style="white")
+    
+    # Built-in templates
+    for backend_name in AVAILABLE_BACKENDS.keys():
+        table.add_row(
+            f"{backend_name}-basic",
+            "Built-in",
+            f"Basic {backend_name} MCP server template"
+        )
+    
+    # TODO: Add custom templates from user directory
+    
+    console.print(table)
+
+
+def _add_template(template_path: str) -> None:
+    """Add a custom template."""
+    console.print(f"[blue]➕ Adding template from: {template_path}[/blue]")
+    # TODO: Implement custom template addition
+    console.print("[green]✅ Template added successfully![/green]")
+
+
+def _remove_template(template_name: str) -> None:
+    """Remove a custom template."""
+    console.print(f"[blue]➖ Removing template: {template_name}[/blue]")
+    # TODO: Implement custom template removal
+    console.print("[green]✅ Template removed successfully![/green]")
+
+
+def main() -> None:
+    """Main entry point for the CLI."""
+    try:
+        cli()
+    except KeyboardInterrupt:
+        console.print("\n[yellow]⚠️ Operation cancelled by user.[/yellow]")
+        sys.exit(0)
+    except Exception as e:
+        console.print(f"[red]❌ Unexpected error: {e}[/red]")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

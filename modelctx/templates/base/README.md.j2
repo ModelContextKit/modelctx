@@ -1,0 +1,335 @@
+# {{ project_name | pascal_case }}
+
+> {{ description }}
+
+## Overview
+
+This is an MCP (Model Context Protocol) server that provides {{ backend_type }} integration capabilities. It was generated using the [MCP Quick Setup Tool](https://github.com/ModelContextKit/modelctx).
+
+## Features
+
+{% if backend_type == "database" %}
+- 🗄️ **Database Integration**: Connect to PostgreSQL, MySQL, or SQLite databases
+- 🔍 **Query Execution**: Execute SQL queries safely with parameter binding
+- 📊 **Schema Inspection**: Get table schemas and database metadata
+- 🔒 **Security**: SQL injection prevention and connection pooling
+{% elif backend_type == "api" %}
+- 🌐 **REST API Integration**: Connect to any REST API with authentication
+- 🔐 **Multiple Auth Methods**: Bearer tokens, API keys, OAuth2 support
+- ⚡ **Rate Limiting**: Built-in rate limiting and retry logic
+- 🔍 **Endpoint Discovery**: Automatic API endpoint discovery
+{% elif backend_type == "filesystem" %}
+- 📁 **File Operations**: Read, write, and manage files securely
+- 🔍 **File Search**: Search files by name pattern and content
+- 🛡️ **Access Control**: Path restrictions and permission management
+- 📊 **Directory Listing**: Browse directory structures with metadata
+{% elif backend_type == "webscraper" %}
+- 🕷️ **Web Scraping**: Extract content from web pages
+- 🤖 **Multiple Engines**: Support for Requests, Selenium, and Playwright
+- 📸 **Screenshots**: Capture page screenshots programmatically
+- 🔒 **Respectful Scraping**: Robots.txt compliance and rate limiting
+{% endif %}
+
+## Installation
+
+### Prerequisites
+- Python 3.8 or higher
+- pip (Python package installer)
+
+### Setup
+```bash
+# Clone or download this project
+cd {{ project_name | kebab_case }}
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Copy environment template
+cp .env.template .env
+
+# Edit .env with your configuration
+# (See Configuration section below)
+```
+
+## Configuration
+
+### Environment Variables
+Copy `.env.template` to `.env` and configure the following variables:
+
+{% if backend_type == "database" %}
+```bash
+# Database connection
+DATABASE_URL=postgresql://user:password@localhost:5432/database
+# or
+DATABASE_URL=mysql://user:password@localhost:3306/database
+# or  
+DATABASE_URL=sqlite:///path/to/database.db
+
+# Optional settings
+DB_POOL_SIZE=5
+DB_TIMEOUT=30
+```
+{% elif backend_type == "api" %}
+```bash
+# API configuration
+API_BASE_URL=https://api.example.com
+API_AUTH_TYPE=bearer  # none, bearer, api_key, token, oauth2
+API_KEY=your-api-key-here
+BEARER_TOKEN=your-bearer-token-here
+
+# Optional settings
+ALLOWED_ENDPOINTS=/users/*,/products/*
+API_HEALTH_ENDPOINT=/health
+```
+{% elif backend_type == "filesystem" %}
+```bash
+# Filesystem configuration
+FS_ALLOWED_PATHS=/home/user/documents,/tmp/uploads
+FS_READ_ONLY=false
+FS_MAX_FILE_SIZE=10485760  # 10MB in bytes
+
+# Optional settings
+FS_ALLOWED_EXTENSIONS=.txt,.md,.json,.csv
+FS_BLOCKED_EXTENSIONS=.exe,.bat,.sh
+```
+{% elif backend_type == "webscraper" %}
+```bash
+# Web scraper configuration
+SCRAPER_USER_AGENT=MCP-WebScraper/1.0 (Responsible Bot)
+SCREENSHOT_METHOD=selenium  # selenium or playwright
+SCRAPER_RATE_LIMIT=1  # seconds between requests
+SCRAPER_TIMEOUT=30
+
+# Optional settings
+SCRAPER_ALLOWED_DOMAINS=example.com,api.example.com
+SCRAPER_BLOCKED_DOMAINS=spam.com,malicious.com
+```
+{% endif %}
+
+### Server Configuration
+Edit `config/config.yaml` to customize server behavior:
+
+```yaml
+server:
+  name: "{{ project_name }}"
+  description: "{{ description }}"
+  version: "1.0.0"
+
+backend:
+  type: "{{ backend_type }}"
+  # Backend-specific settings go here
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+security:
+  validate_inputs: true
+  log_requests: true
+  timeout: 30
+```
+
+## Usage
+
+### Starting the Server
+```bash
+# Start the MCP server
+python server.py
+
+# Or with custom config
+python server.py --config config/config.yaml
+```
+
+### Testing with MCP Inspector
+```bash
+# Install MCP Inspector (requires Node.js)
+npm install -g @modelcontextprotocol/inspector
+
+# Test your server
+npx @modelcontextprotocol/inspector python server.py
+```
+
+### Integration with Claude Desktop
+
+1. Add the following to your Claude Desktop configuration file:
+
+**Linux**: `~/.config/Claude/claude_desktop_config.json`  
+**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`  
+**Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "{{ project_name }}": {
+      "command": "python",
+      "args": ["/absolute/path/to/{{ project_name }}/server.py"],
+      "env": {
+{% if backend_type == "database" %}
+        "DATABASE_URL": "your-database-url"
+{% elif backend_type == "api" %}
+        "API_BASE_URL": "https://api.example.com",
+        "API_KEY": "your-api-key"
+{% elif backend_type == "filesystem" %}
+        "FS_ALLOWED_PATHS": "/path/to/allowed/directory"
+{% elif backend_type == "webscraper" %}
+        "SCRAPER_USER_AGENT": "Your Bot Name/1.0"
+{% endif %}
+      }
+    }
+  }
+}
+```
+
+2. Restart Claude Desktop
+3. Your MCP server will now be available in Claude!
+
+## Available Tools
+
+{% for tool in tools %}
+### `{{ tool.name }}`
+{{ tool.description }}
+
+**Parameters**: `{{ tool.parameters }}`  
+**Returns**: `{{ tool.return_type }}`
+
+{% endfor %}
+
+## Available Resources
+
+{% for resource in resources %}
+### `{{ resource.uri }}`
+{{ resource.description }}
+
+{% endfor %}
+
+## Development
+
+### Running Tests
+```bash
+# Install development dependencies
+pip install -e ".[dev]"
+
+# Run tests
+python -m pytest tests/
+
+# Run with coverage
+python -m pytest --cov={{ project_name | snake_case }} tests/
+```
+
+### Code Quality
+```bash
+# Format code
+black .
+
+# Lint code
+ruff check .
+
+# Type checking
+mypy {{ project_name | snake_case }}/
+```
+
+## Deployment
+
+### Local Deployment
+```bash
+# Start the server
+python server.py
+```
+
+### Docker Deployment
+```bash
+# Build Docker image
+docker build -t {{ project_name | kebab_case }} .
+
+# Run container
+docker run -d --name {{ project_name | kebab_case }} \
+  --env-file .env \
+  -p 8000:8000 \
+  {{ project_name | kebab_case }}
+```
+
+### Production Considerations
+- Use a process manager like `systemd` or `supervisor`
+- Set up proper logging and monitoring
+- Configure firewall and security settings
+- Use environment variables for sensitive configuration
+- Regular backups for database backends
+
+## Troubleshooting
+
+### Common Issues
+
+{% if backend_type == "database" %}
+**Database Connection Failed**
+- Verify database URL format and credentials
+- Check network connectivity to database server
+- Ensure database server is running and accessible
+
+**Query Execution Errors**
+- Check SQL syntax and table names
+- Verify user permissions for database operations
+- Review query logs for detailed error messages
+{% elif backend_type == "api" %}
+**API Authentication Failed**
+- Verify API credentials and authentication method
+- Check API endpoint URLs and availability
+- Review API documentation for correct auth headers
+
+**Rate Limit Exceeded**
+- Reduce request frequency in configuration
+- Check API provider's rate limit policies
+- Implement exponential backoff for retries
+{% elif backend_type == "filesystem" %}
+**File Access Denied**
+- Check file/directory permissions
+- Verify paths are within allowed directories
+- Ensure files are not locked by other processes
+
+**File Size Errors**
+- Check MAX_FILE_SIZE configuration
+- Verify available disk space
+- Consider splitting large files into chunks
+{% elif backend_type == "webscraper" %}
+**Scraping Blocked**
+- Check robots.txt compliance settings
+- Verify user agent string is appropriate
+- Implement proper delays between requests
+
+**Screenshot Failures**
+- Install Chrome/Chromium browser
+- Check Selenium WebDriver installation
+- Verify display settings for headless mode
+{% endif %}
+
+### Logging
+Check the server logs for detailed error information:
+
+```bash
+# View recent logs
+tail -f mcp_server.log
+
+# Search for errors
+grep "ERROR" mcp_server.log
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Support
+
+- 📚 [MCP Documentation](https://docs.anthropic.com/en/docs/build-with-claude/computer-use)
+- 💬 [Community Discussions](https://github.com/ModelContextKit/modelctx/discussions)
+- 🐛 [Report Issues](https://github.com/ModelContextKit/modelctx/issues)
+
+---
+
+Generated with ❤️ by [MCP Quick Setup Tool](https://github.com/ModelContextKit/modelctx)

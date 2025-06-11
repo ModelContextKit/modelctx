@@ -1,0 +1,486 @@
+# {{ project_name | pascal_case }} - API Documentation
+
+> Comprehensive API reference for the {{ backend_type }} MCP server
+
+## Overview
+
+This document describes the tools and resources available in the {{ project_name }} MCP server.
+
+## Server Information
+
+- **Name**: {{ project_name }}
+- **Backend Type**: {{ backend_type }}
+- **Description**: {{ description }}
+- **Protocol**: MCP (Model Context Protocol)
+
+## Tools
+
+Tools are functions that can be called by MCP clients to perform actions.
+
+{% for tool in tools %}
+### {{ tool.name }}
+
+{{ tool.description }}
+
+**Signature**: `{{ tool.name }}({{ tool.parameters }})`  
+**Returns**: `{{ tool.return_type }}`
+
+{% if tool.name == "execute_query" and backend_type == "database" %}
+**Usage Example**:
+```python
+# Execute a safe parameterized query
+result = await execute_query(
+    "SELECT * FROM users WHERE age > :min_age AND city = :city",
+    {"min_age": 18, "city": "San Francisco"}
+)
+
+# Check result
+if result["success"]:
+    for row in result["rows"]:
+        print(f"User: {row['name']} ({row['email']})")
+else:
+    print(f"Query failed: {result['error']}")
+```
+
+**Security Notes**:
+- Only SELECT queries are allowed by default
+- All queries use parameter binding to prevent SQL injection
+- Query execution is logged for security monitoring
+- Connection pooling is used for optimal performance
+
+{% elif tool.name == "api_request" and backend_type == "api" %}
+**Usage Example**:
+```python
+# Make authenticated GET request
+result = await api_request(
+    endpoint="/users/123",
+    method="GET",
+    headers={"Accept": "application/json"}
+)
+
+# Make POST request with data
+result = await api_request(
+    endpoint="/users",
+    method="POST",
+    data={"name": "John Doe", "email": "john@example.com"}
+)
+
+# Check result
+if result["success"]:
+    print(f"Response: {result['data']}")
+    print(f"Status: {result['status_code']}")
+else:
+    print(f"Request failed: {result['error']}")
+```
+
+**Features**:
+- Automatic authentication header injection
+- Rate limiting with configurable delays
+- Request/response logging
+- Error handling with detailed messages
+
+{% elif tool.name == "read_file" and backend_type == "filesystem" %}
+**Usage Example**:
+```python
+# Read a text file
+result = await read_file("/allowed/path/document.txt")
+
+# Read with specific encoding
+result = await read_file(
+    "/allowed/path/data.csv",
+    encoding="utf-8",
+    max_size=5242880  # 5MB limit
+)
+
+# Check result
+if result["success"]:
+    print(f"Content: {result['content']}")
+    print(f"Size: {result['size']} bytes")
+    print(f"MIME type: {result['mime_type']}")
+else:
+    print(f"Read failed: {result['error']}")
+```
+
+**Security Features**:
+- Path traversal prevention
+- Allowed directory restrictions
+- File size limits
+- File type filtering
+
+{% elif tool.name == "scrape_url" and backend_type == "webscraper" %}
+**Usage Example**:
+```python
+# Basic web scraping
+result = await scrape_url("https://example.com")
+
+# Advanced scraping with CSS selector
+result = await scrape_url(
+    "https://news.example.com",
+    method="playwright",
+    extract_text=True,
+    extract_links=True,
+    css_selector=".article-content"
+)
+
+# Check result
+if result["success"]:
+    print(f"Title: {result['title']}")
+    print(f"Content: {result['text_content'][:500]}...")
+    print(f"Links found: {len(result['links'])}")
+else:
+    print(f"Scraping failed: {result['error']}")
+```
+
+**Features**:
+- Multiple scraping engines (Requests, Selenium, Playwright)
+- Robots.txt compliance
+- Rate limiting per domain
+- Screenshot capture capabilities
+
+{% endif %}
+
+**Response Format**:
+```json
+{
+  "success": true,
+  "data": "...",
+  "message": "Operation completed successfully"
+}
+```
+
+**Error Response**:
+```json
+{
+  "success": false,
+  "error": "Detailed error message",
+  "code": "ERROR_CODE"
+}
+```
+
+{% endfor %}
+
+## Resources
+
+Resources provide read-only access to server data and configuration.
+
+{% for resource in resources %}
+### {{ resource.uri }}
+
+{{ resource.description }}
+
+**Access Pattern**: `{{ resource.uri }}`
+
+{% if resource.name == "get_database_tables" and backend_type == "database" %}
+**Example Response**:
+```json
+{
+  "database_type": "postgresql",
+  "tables": [
+    {
+      "name": "users",
+      "type": "BASE TABLE"
+    },
+    {
+      "name": "products", 
+      "type": "BASE TABLE"
+    }
+  ],
+  "count": 2
+}
+```
+
+{% elif resource.name == "get_api_info" and backend_type == "api" %}
+**Example Response**:
+```json
+{
+  "base_url": "https://api.example.com",
+  "auth_type": "bearer",
+  "rate_limit": {
+    "requests_per_minute": 60,
+    "remaining": 45
+  },
+  "timeout": 30,
+  "configured_endpoints": "unrestricted"
+}
+```
+
+{% elif resource.name == "get_filesystem_info" and backend_type == "filesystem" %}
+**Example Response**:
+```json
+{
+  "allowed_paths": ["/home/user/documents", "/tmp/uploads"],
+  "read_only_mode": false,
+  "max_file_size": 10485760,
+  "allowed_extensions": ["all"],
+  "blocked_extensions": [".exe", ".bat", ".cmd"]
+}
+```
+
+{% elif resource.name == "get_scraper_config" and backend_type == "webscraper" %}
+**Example Response**:
+```json
+{
+  "user_agent": "MCP-WebScraper/1.0",
+  "respect_robots_txt": true,
+  "rate_limit_delay": 1.0,
+  "request_timeout": 30,
+  "allowed_domains": ["all"],
+  "blocked_domains": []
+}
+```
+
+{% endif %}
+
+{% endfor %}
+
+## Error Handling
+
+All tools and resources follow consistent error handling patterns:
+
+### Common Error Types
+
+{% if backend_type == "database" %}
+- **ConnectionError**: Database connection failed
+- **ValidationError**: Invalid SQL query or parameters
+- **PermissionError**: Insufficient database permissions
+- **TimeoutError**: Query execution timeout
+{% elif backend_type == "api" %}
+- **AuthenticationError**: Invalid API credentials
+- **RateLimitError**: Too many requests
+- **TimeoutError**: Request timeout
+- **ValidationError**: Invalid request parameters
+{% elif backend_type == "filesystem" %}
+- **PermissionError**: File access denied
+- **PathError**: Invalid or restricted file path
+- **SizeError**: File too large
+- **TypeError**: File type not allowed
+{% elif backend_type == "webscraper" %}
+- **RobotsTxtError**: Access denied by robots.txt
+- **RateLimitError**: Domain rate limit exceeded
+- **TimeoutError**: Request timeout
+- **ValidationError**: Invalid URL or parameters
+{% endif %}
+
+### Error Response Format
+
+```json
+{
+  "success": false,
+  "error": "Human-readable error message",
+  "error_code": "MACHINE_READABLE_CODE",
+  "details": {
+    "field": "Additional context",
+    "suggestion": "How to fix the issue"
+  }
+}
+```
+
+## Rate Limiting
+
+{% if backend_type == "database" %}
+- **Connection Pool**: Limited by pool size configuration
+- **Query Timeout**: Individual queries have timeout limits
+- **Concurrent Queries**: Limited by pool size
+{% elif backend_type == "api" %}
+- **Requests per Minute**: Configurable rate limit
+- **Per-Domain Limits**: Separate limits for different domains
+- **Burst Protection**: Prevents rapid successive requests
+{% elif backend_type == "filesystem" %}
+- **File Size Limits**: Maximum file size restrictions
+- **Operation Limits**: No specific rate limits
+- **Concurrent Access**: Thread-safe file operations
+{% elif backend_type == "webscraper" %}
+- **Domain-Based**: Separate rate limits per domain
+- **Delay Between Requests**: Configurable delay
+- **Robots.txt Compliance**: Respects crawl-delay directives
+{% endif %}
+
+## Authentication & Security
+
+{% if backend_type == "database" %}
+- **Connection Security**: SSL/TLS encryption supported
+- **Query Validation**: SQL injection prevention
+- **Parameter Binding**: Safe parameter substitution
+- **Audit Logging**: All queries are logged
+{% elif backend_type == "api" %}
+- **Multiple Auth Methods**: Bearer, API key, OAuth2
+- **Secure Storage**: Credentials in environment variables
+- **HTTPS Only**: Secure transport layer
+- **Request Signing**: Optional request signing
+{% elif backend_type == "filesystem" %}
+- **Path Restrictions**: Access limited to allowed directories
+- **Permission Checks**: File system permission validation
+- **Type Filtering**: File type allow/block lists
+- **Audit Trail**: File operation logging
+{% elif backend_type == "webscraper" %}
+- **Domain Filtering**: Allow/block domain lists
+- **User Agent**: Proper identification
+- **Rate Limiting**: Respectful scraping practices
+- **Content Filtering**: Size and type restrictions
+{% endif %}
+
+## Configuration Reference
+
+### Environment Variables
+
+{% if backend_type == "database" %}
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `DATABASE_URL` | Database connection string | - | Yes |
+| `DB_POOL_SIZE` | Connection pool size | 5 | No |
+| `DB_TIMEOUT` | Query timeout (seconds) | 30 | No |
+{% elif backend_type == "api" %}
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `API_BASE_URL` | Base API URL | - | Yes |
+| `API_AUTH_TYPE` | Authentication type | bearer | No |
+| `API_KEY` | API key for authentication | - | Conditional |
+| `BEARER_TOKEN` | Bearer token | - | Conditional |
+{% elif backend_type == "filesystem" %}
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `FS_ALLOWED_PATHS` | Comma-separated allowed paths | . | Yes |
+| `FS_READ_ONLY` | Read-only mode | false | No |
+| `FS_MAX_FILE_SIZE` | Max file size in bytes | 10485760 | No |
+{% elif backend_type == "webscraper" %}
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `SCRAPER_USER_AGENT` | User agent string | MCP-Scraper/1.0 | No |
+| `SCRAPER_RATE_LIMIT` | Delay between requests | 1.0 | No |
+| `SCRAPER_TIMEOUT` | Request timeout | 30 | No |
+{% endif %}
+
+### Configuration File Schema
+
+```yaml
+server:
+  name: string
+  description: string
+  version: string
+
+backend:
+  type: "{{ backend_type }}"
+  # Backend-specific configuration
+
+logging:
+  level: INFO | DEBUG | WARNING | ERROR
+  format: string
+  file: string (optional)
+
+security:
+  validate_inputs: boolean
+  log_requests: boolean
+  timeout: integer
+```
+
+## Examples
+
+### Basic Usage with MCP Client
+
+```python
+import asyncio
+from mcp_client import Client
+
+async def main():
+    client = Client("python server.py")
+    await client.connect()
+    
+    {% if backend_type == "database" %}
+    # List all tables
+    tables = await client.call_tool("list_tables")
+    print(f"Available tables: {tables['data']['tables']}")
+    
+    # Execute a query
+    result = await client.call_tool("execute_query", {
+        "query": "SELECT COUNT(*) as user_count FROM users",
+        "parameters": {}
+    })
+    print(f"Total users: {result['data']['rows'][0]['user_count']}")
+    {% elif backend_type == "api" %}
+    # Check API status
+    status = await client.call_tool("get_api_status")
+    print(f"API Status: {status['data']['status']}")
+    
+    # Make API request
+    result = await client.call_tool("api_request", {
+        "endpoint": "/users",
+        "method": "GET"
+    })
+    print(f"Users: {result['data']['data']}")
+    {% elif backend_type == "filesystem" %}
+    # List directory contents
+    files = await client.call_tool("list_directory", {
+        "dir_path": "/allowed/path"
+    })
+    print(f"Files: {[f['name'] for f in files['data']['items']]}")
+    
+    # Read a file
+    content = await client.call_tool("read_file", {
+        "file_path": "/allowed/path/readme.txt"
+    })
+    print(f"Content: {content['data']['content'][:100]}...")
+    {% elif backend_type == "webscraper" %}
+    # Get page information
+    info = await client.call_tool("get_page_info", {
+        "url": "https://example.com"
+    })
+    print(f"Page title: {info['data']['title']}")
+    
+    # Scrape content
+    content = await client.call_tool("scrape_url", {
+        "url": "https://example.com",
+        "extract_text": True
+    })
+    print(f"Text content: {content['data']['text_content'][:200]}...")
+    {% endif %}
+    
+    await client.disconnect()
+
+asyncio.run(main())
+```
+
+## Troubleshooting
+
+### Debug Mode
+
+Enable debug logging by setting the environment variable:
+
+```bash
+export LOG_LEVEL=DEBUG
+python server.py
+```
+
+### Common Issues
+
+{% if backend_type == "database" %}
+1. **Connection refused**: Check database server status and connection string
+2. **Authentication failed**: Verify username/password in DATABASE_URL
+3. **Permission denied**: Ensure database user has required permissions
+4. **Query timeout**: Increase DB_TIMEOUT or optimize queries
+{% elif backend_type == "api" %}
+1. **401 Unauthorized**: Check API credentials and authentication method
+2. **403 Forbidden**: Verify API permissions and allowed endpoints
+3. **429 Rate Limited**: Increase rate limit delay or check API limits
+4. **Timeout**: Increase request timeout or check network connectivity
+{% elif backend_type == "filesystem" %}
+1. **Permission denied**: Check file/directory permissions
+2. **Path not allowed**: Verify path is in FS_ALLOWED_PATHS
+3. **File too large**: Check FS_MAX_FILE_SIZE setting
+4. **File type blocked**: Check allowed/blocked extension lists
+{% elif backend_type == "webscraper" %}
+1. **Robots.txt denied**: Check site's robots.txt file
+2. **Rate limited**: Increase SCRAPER_RATE_LIMIT delay
+3. **Timeout**: Increase SCRAPER_TIMEOUT setting
+4. **Blocked domain**: Check allowed/blocked domain lists
+{% endif %}
+
+### Support
+
+- Check server logs for detailed error messages
+- Validate configuration with `python server.py --validate`
+- Test with MCP Inspector for debugging
+- Review environment variables and permissions
+
+---
+
+*This documentation was generated automatically by the MCP Quick Setup Tool.*

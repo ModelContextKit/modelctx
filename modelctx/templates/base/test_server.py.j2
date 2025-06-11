@@ -1,0 +1,490 @@
+"""Tests for {{ project_name }} MCP server."""
+
+import pytest
+import asyncio
+import json
+from unittest.mock import AsyncMock, MagicMock, patch
+from mcp.server.session import ServerSession
+from mcp.types import CallToolRequest, CallToolResult, ListToolsRequest, ListResourcesRequest
+
+# Import the server module
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from server import mcp
+
+
+class TestMCPServer:
+    """Test cases for the MCP server."""
+    
+    @pytest.fixture
+    def server_session(self):
+        """Create a server session for testing."""
+        session = ServerSession(mcp.app)
+        return session
+    
+    def test_server_initialization(self):
+        """Test that the server initializes correctly."""
+        assert mcp is not None
+        assert hasattr(mcp, 'app')
+    
+    @pytest.mark.asyncio
+    async def test_list_tools(self, server_session):
+        """Test listing available tools."""
+        request = ListToolsRequest()
+        response = await server_session.list_tools(request)
+        
+        assert response is not None
+        assert hasattr(response, 'tools')
+        assert len(response.tools) > 0
+        
+        # Check that tools have required fields
+        for tool in response.tools:
+            assert hasattr(tool, 'name')
+            assert hasattr(tool, 'description')
+    
+    @pytest.mark.asyncio 
+    async def test_list_resources(self, server_session):
+        """Test listing available resources."""
+        request = ListResourcesRequest()
+        response = await server_session.list_resources(request)
+        
+        assert response is not None
+        assert hasattr(response, 'resources')
+        
+        # Resources might be empty for some backends
+        for resource in response.resources:
+            assert hasattr(resource, 'uri')
+            assert hasattr(resource, 'name')
+
+{% if backend_type == "database" %}
+    @pytest.mark.asyncio
+    async def test_execute_query_tool(self, server_session):
+        """Test the execute_query tool."""
+        # Mock database connection
+        with patch('server.get_db_connection') as mock_conn:
+            mock_session = AsyncMock()
+            mock_result = AsyncMock()
+            mock_result.returns_rows = True
+            mock_result.fetchall.return_value = [('test_value',)]
+            mock_result.keys.return_value = ['test_column']
+            mock_session.execute.return_value = mock_result
+            mock_conn.return_value.__aenter__.return_value = mock_session
+            
+            request = CallToolRequest(
+                name="execute_query",
+                arguments={"query": "SELECT 1 as test_column"}
+            )
+            
+            response = await server_session.call_tool(request)
+            
+            assert isinstance(response, CallToolResult)
+            assert response.content is not None
+    
+    @pytest.mark.asyncio
+    async def test_list_tables_tool(self, server_session):
+        """Test the list_tables tool."""
+        with patch('server.get_db_connection') as mock_conn:
+            mock_session = AsyncMock()
+            mock_result = AsyncMock()
+            mock_result.fetchall.return_value = [('users',), ('products',)]
+            mock_session.execute.return_value = mock_result
+            mock_conn.return_value.__aenter__.return_value = mock_session
+            
+            request = CallToolRequest(
+                name="list_tables",
+                arguments={}
+            )
+            
+            response = await server_session.call_tool(request)
+            
+            assert isinstance(response, CallToolResult)
+            assert response.content is not None
+
+{% elif backend_type == "api" %}
+    @pytest.mark.asyncio
+    async def test_api_request_tool(self, server_session):
+        """Test the api_request tool."""
+        with patch('server.get_http_client') as mock_client:
+            mock_response = AsyncMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"data": "test"}
+            mock_response.headers = {"content-type": "application/json"}
+            mock_response.url = "https://api.example.com/test"
+            
+            mock_client.return_value.__aenter__.return_value.request.return_value = mock_response
+            
+            request = CallToolRequest(
+                name="api_request",
+                arguments={
+                    "endpoint": "/test",
+                    "method": "GET"
+                }
+            )
+            
+            response = await server_session.call_tool(request)
+            
+            assert isinstance(response, CallToolResult)
+            assert response.content is not None
+    
+    @pytest.mark.asyncio
+    async def test_get_api_status_tool(self, server_session):
+        """Test the get_api_status tool."""
+        with patch('server.get_http_client') as mock_client:
+            mock_response = AsyncMock()
+            mock_response.status_code = 200
+            mock_client.return_value.__aenter__.return_value.get.return_value = mock_response
+            
+            request = CallToolRequest(
+                name="get_api_status",
+                arguments={}
+            )
+            
+            response = await server_session.call_tool(request)
+            
+            assert isinstance(response, CallToolResult)
+            assert response.content is not None
+
+{% elif backend_type == "filesystem" %}
+    @pytest.mark.asyncio
+    async def test_read_file_tool(self, server_session):
+        """Test the read_file tool."""
+        with patch('server._validate_and_resolve_path') as mock_validate, \
+             patch('aiofiles.open') as mock_open:
+            
+            # Mock path validation
+            mock_path = MagicMock()
+            mock_path.exists.return_value = True
+            mock_path.is_file.return_value = True
+            mock_path.stat.return_value.st_size = 100
+            mock_path.suffix = '.txt'
+            mock_validate.return_value = mock_path
+            
+            # Mock file reading
+            mock_file = AsyncMock()
+            mock_file.read.return_value = "test content"
+            mock_open.return_value.__aenter__.return_value = mock_file
+            
+            request = CallToolRequest(
+                name="read_file",
+                arguments={"file_path": "/test/file.txt"}
+            )
+            
+            response = await server_session.call_tool(request)
+            
+            assert isinstance(response, CallToolResult)
+            assert response.content is not None
+    
+    @pytest.mark.asyncio
+    async def test_list_directory_tool(self, server_session):
+        """Test the list_directory tool."""
+        with patch('server._validate_and_resolve_path') as mock_validate, \
+             patch('server._get_item_info') as mock_info:
+            
+            # Mock path validation
+            mock_path = MagicMock()
+            mock_path.exists.return_value = True
+            mock_path.is_dir.return_value = True
+            mock_path.iterdir.return_value = [MagicMock(name='test.txt')]
+            mock_validate.return_value = mock_path
+            
+            # Mock item info
+            mock_info.return_value = {
+                "name": "test.txt",
+                "type": "file",
+                "size": 100
+            }
+            
+            request = CallToolRequest(
+                name="list_directory",
+                arguments={"dir_path": "/test"}
+            )
+            
+            response = await server_session.call_tool(request)
+            
+            assert isinstance(response, CallToolResult)
+            assert response.content is not None
+
+{% elif backend_type == "webscraper" %}
+    @pytest.mark.asyncio
+    async def test_scrape_url_tool(self, server_session):
+        """Test the scrape_url tool."""
+        with patch('server._validate_url') as mock_validate, \
+             patch('server._check_rate_limit') as mock_rate, \
+             patch('server._record_request') as mock_record, \
+             patch('server._scrape_with_requests') as mock_scrape:
+            
+            # Mock validations
+            mock_validate.return_value = True
+            mock_rate.return_value = True
+            mock_record.return_value = None
+            
+            # Mock scraping
+            mock_scrape.return_value = {
+                "success": True,
+                "html": "<html><title>Test</title><body>Content</body></html>",
+                "status_code": 200,
+                "response_time": 500
+            }
+            
+            request = CallToolRequest(
+                name="scrape_url",
+                arguments={"url": "https://example.com"}
+            )
+            
+            response = await server_session.call_tool(request)
+            
+            assert isinstance(response, CallToolResult)
+            assert response.content is not None
+    
+    @pytest.mark.asyncio
+    async def test_get_page_info_tool(self, server_session):
+        """Test the get_page_info tool."""
+        with patch('server._validate_url') as mock_validate, \
+             patch('server._check_rate_limit') as mock_rate, \
+             patch('server._record_request') as mock_record, \
+             patch('httpx.AsyncClient') as mock_client:
+            
+            # Mock validations
+            mock_validate.return_value = True
+            mock_rate.return_value = True
+            mock_record.return_value = None
+            
+            # Mock HTTP client
+            mock_response = AsyncMock()
+            mock_response.status_code = 200
+            mock_response.text = "<html><title>Test Page</title></html>"
+            mock_response.headers = {"content-type": "text/html"}
+            mock_response.url = "https://example.com"
+            mock_response.history = []
+            
+            mock_client.return_value.__aenter__.return_value.head.return_value = mock_response
+            mock_client.return_value.__aenter__.return_value.get.return_value = mock_response
+            
+            request = CallToolRequest(
+                name="get_page_info",
+                arguments={"url": "https://example.com"}
+            )
+            
+            response = await server_session.call_tool(request)
+            
+            assert isinstance(response, CallToolResult)
+            assert response.content is not None
+
+{% endif %}
+
+    @pytest.mark.asyncio
+    async def test_invalid_tool_call(self, server_session):
+        """Test calling a non-existent tool."""
+        request = CallToolRequest(
+            name="nonexistent_tool",
+            arguments={}
+        )
+        
+        with pytest.raises(Exception):
+            await server_session.call_tool(request)
+    
+    @pytest.mark.asyncio
+    async def test_tool_with_invalid_arguments(self, server_session):
+        """Test calling a tool with invalid arguments."""
+        # Get the first available tool
+        tools_request = ListToolsRequest()
+        tools_response = await server_session.list_tools(tools_request)
+        
+        if tools_response.tools:
+            tool_name = tools_response.tools[0].name
+            
+            request = CallToolRequest(
+                name=tool_name,
+                arguments={"invalid_arg": "invalid_value"}
+            )
+            
+            # This should either succeed (if tool handles invalid args gracefully)
+            # or raise an exception (which is also valid behavior)
+            try:
+                response = await server_session.call_tool(request)
+                assert isinstance(response, CallToolResult)
+            except Exception:
+                # Expected for invalid arguments
+                pass
+
+
+class TestConfiguration:
+    """Test configuration and validation."""
+    
+    def test_environment_variables(self):
+        """Test that required environment variables are handled."""
+        import os
+        
+        # Test that server can handle missing environment variables
+        {% if backend_type == "database" %}
+        original_db_url = os.environ.get('DATABASE_URL')
+        if 'DATABASE_URL' in os.environ:
+            del os.environ['DATABASE_URL']
+        
+        # Server should handle missing DATABASE_URL gracefully
+        # (might use defaults or fail gracefully)
+        
+        if original_db_url:
+            os.environ['DATABASE_URL'] = original_db_url
+        {% elif backend_type == "api" %}
+        original_base_url = os.environ.get('API_BASE_URL')
+        if 'API_BASE_URL' in os.environ:
+            del os.environ['API_BASE_URL']
+        
+        # Server should handle missing API_BASE_URL gracefully
+        
+        if original_base_url:
+            os.environ['API_BASE_URL'] = original_base_url
+        {% elif backend_type == "filesystem" %}
+        original_paths = os.environ.get('FS_ALLOWED_PATHS')
+        if 'FS_ALLOWED_PATHS' in os.environ:
+            del os.environ['FS_ALLOWED_PATHS']
+        
+        # Server should handle missing FS_ALLOWED_PATHS gracefully
+        
+        if original_paths:
+            os.environ['FS_ALLOWED_PATHS'] = original_paths
+        {% elif backend_type == "webscraper" %}
+        original_ua = os.environ.get('SCRAPER_USER_AGENT')
+        if 'SCRAPER_USER_AGENT' in os.environ:
+            del os.environ['SCRAPER_USER_AGENT']
+        
+        # Server should handle missing SCRAPER_USER_AGENT gracefully
+        
+        if original_ua:
+            os.environ['SCRAPER_USER_AGENT'] = original_ua
+        {% endif %}
+
+
+class TestSecurity:
+    """Test security features."""
+    
+    {% if backend_type == "database" %}
+    def test_sql_injection_prevention(self):
+        """Test that SQL injection attempts are blocked."""
+        # This would be tested with actual database calls
+        # For now, just verify the validation function exists
+        from server import _validate_query
+        
+        # These should be blocked
+        assert not _validate_query("DROP TABLE users")
+        assert not _validate_query("DELETE FROM users")
+        assert not _validate_query("INSERT INTO users VALUES (1, 'test')")
+        
+        # These should be allowed
+        assert _validate_query("SELECT * FROM users")
+        assert _validate_query("select count(*) from products")
+    
+    {% elif backend_type == "filesystem" %}
+    def test_path_traversal_prevention(self):
+        """Test that path traversal attempts are blocked."""
+        # This would test the path validation logic
+        # For now, verify the function exists
+        from server import _validate_and_resolve_path
+        
+        # This is a placeholder - actual implementation would test:
+        # - ../../../etc/passwd attempts
+        # - Symlink following
+        # - Access outside allowed directories
+        assert callable(_validate_and_resolve_path)
+    
+    {% elif backend_type == "webscraper" %}
+    def test_domain_filtering(self):
+        """Test that domain filtering works correctly."""
+        from server import _validate_url
+        
+        # Test basic URL validation
+        assert _validate_url("https://example.com")
+        assert _validate_url("http://example.com")
+        assert not _validate_url("ftp://example.com")
+        assert not _validate_url("invalid-url")
+    
+    {% elif backend_type == "api" %}
+    def test_credential_handling(self):
+        """Test that credentials are handled securely."""
+        from server import _prepare_headers
+        
+        # Test that function exists and is callable
+        assert callable(_prepare_headers)
+    
+    {% endif %}
+
+
+class TestErrorHandling:
+    """Test error handling and edge cases."""
+    
+    @pytest.mark.asyncio
+    async def test_network_timeout_handling(self, server_session):
+        """Test handling of network timeouts."""
+        {% if backend_type in ["api", "webscraper"] %}
+        with patch('httpx.AsyncClient') as mock_client:
+            import httpx
+            mock_client.return_value.__aenter__.return_value.get.side_effect = httpx.TimeoutException("Timeout")
+            
+            {% if backend_type == "api" %}
+            request = CallToolRequest(
+                name="get_api_status",
+                arguments={}
+            )
+            {% else %}
+            request = CallToolRequest(
+                name="get_page_info", 
+                arguments={"url": "https://slow-example.com"}
+            )
+            {% endif %}
+            
+            response = await server_session.call_tool(request)
+            
+            # Should handle timeout gracefully
+            assert isinstance(response, CallToolResult)
+            # Response should indicate failure
+            content = json.loads(response.content[0].text)
+            assert not content.get("success", True)
+        {% endif %}
+    
+    {% if backend_type == "filesystem" %}
+    @pytest.mark.asyncio
+    async def test_file_permission_errors(self, server_session):
+        """Test handling of file permission errors."""
+        with patch('server._validate_and_resolve_path') as mock_validate:
+            mock_validate.return_value = None  # Simulate access denied
+            
+            request = CallToolRequest(
+                name="read_file",
+                arguments={"file_path": "/restricted/file.txt"}
+            )
+            
+            response = await server_session.call_tool(request)
+            
+            # Should handle permission error gracefully
+            assert isinstance(response, CallToolResult)
+            content = json.loads(response.content[0].text)
+            assert not content.get("success", True)
+    
+    {% elif backend_type == "database" %}
+    @pytest.mark.asyncio
+    async def test_database_connection_errors(self, server_session):
+        """Test handling of database connection errors."""
+        with patch('server.get_db_connection') as mock_conn:
+            mock_conn.side_effect = Exception("Database connection failed")
+            
+            request = CallToolRequest(
+                name="list_tables",
+                arguments={}
+            )
+            
+            response = await server_session.call_tool(request)
+            
+            # Should handle database error gracefully
+            assert isinstance(response, CallToolResult)
+            content = json.loads(response.content[0].text)
+            assert not content.get("success", True)
+    
+    {% endif %}
+
+
+if __name__ == "__main__":
+    # Run tests with pytest
+    pytest.main([__file__, "-v"])

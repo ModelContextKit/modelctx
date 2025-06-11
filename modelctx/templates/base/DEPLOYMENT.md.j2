@@ -1,0 +1,731 @@
+# {{ project_name | pascal_case }} - Deployment Guide
+
+> Complete deployment guide for the {{ backend_type }} MCP server
+
+## Overview
+
+This guide covers various deployment options for your {{ project_name }} MCP server, from local development to production environments.
+
+## Deployment Options
+
+### 1. Local Development
+
+**Quick Start**:
+```bash
+# Navigate to project directory
+cd {{ project_name }}
+
+# Activate virtual environment (if using one)
+source venv/bin/activate  # Linux/macOS
+# or
+venv\Scripts\activate     # Windows
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Configure environment
+cp .env.template .env
+# Edit .env with your settings
+
+# Start the server
+python server.py
+```
+
+**Development with Auto-reload**:
+```bash
+# Install development dependencies
+pip install watchdog
+
+# Start with file watching
+python -m watchdog.tricks.shell_command_trick \
+  --patterns="*.py;*.yaml;*.json" \
+  --command="python server.py" \
+  --directory=.
+```
+
+### 2. Production Deployment
+
+#### Using systemd (Linux)
+
+Create a systemd service file at `/etc/systemd/system/{{ project_name | kebab_case }}.service`:
+
+```ini
+[Unit]
+Description={{ project_name | pascal_case }} MCP Server
+After=network.target
+
+[Service]
+Type=simple
+User={{ '${USER}' }}
+WorkingDirectory=/path/to/{{ project_name }}
+Environment=PATH=/path/to/{{ project_name }}/venv/bin
+ExecStart=/path/to/{{ project_name }}/venv/bin/python server.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Environment variables
+{% if backend_type == "database" %}
+Environment=DATABASE_URL=postgresql://user:pass@localhost/db
+{% elif backend_type == "api" %}
+Environment=API_BASE_URL=https://api.example.com
+Environment=API_KEY=your-api-key
+{% elif backend_type == "filesystem" %}
+Environment=FS_ALLOWED_PATHS=/var/lib/{{ project_name }}/data
+{% elif backend_type == "webscraper" %}
+Environment=SCRAPER_USER_AGENT={{ project_name | pascal_case }}/1.0
+{% endif %}
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start the service:
+```bash
+sudo systemctl enable {{ project_name | kebab_case }}
+sudo systemctl start {{ project_name | kebab_case }}
+sudo systemctl status {{ project_name | kebab_case }}
+```
+
+#### Using PM2 (Node.js Process Manager)
+
+```bash
+# Install PM2
+npm install -g pm2
+
+# Create ecosystem file
+cat > ecosystem.config.js << EOF
+module.exports = {
+  apps: [{
+    name: '{{ project_name | kebab_case }}',
+    script: 'python',
+    args: 'server.py',
+    cwd: '/path/to/{{ project_name }}',
+    interpreter: '/path/to/{{ project_name }}/venv/bin/python',
+    env: {
+{% if backend_type == "database" %}
+      DATABASE_URL: 'postgresql://user:pass@localhost/db',
+{% elif backend_type == "api" %}
+      API_BASE_URL: 'https://api.example.com',
+      API_KEY: 'your-api-key',
+{% elif backend_type == "filesystem" %}
+      FS_ALLOWED_PATHS: '/var/lib/{{ project_name }}/data',
+{% elif backend_type == "webscraper" %}
+      SCRAPER_USER_AGENT: '{{ project_name | pascal_case }}/1.0',
+{% endif %}
+    },
+    instances: 1,
+    autorestart: true,
+    watch: false,
+    max_memory_restart: '1G'
+  }]
+};
+EOF
+
+# Start with PM2
+pm2 start ecosystem.config.js
+pm2 save
+pm2 startup
+```
+
+### 3. Docker Deployment
+
+#### Dockerfile
+
+Create a `Dockerfile`:
+
+```dockerfile
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+{% if backend_type == "webscraper" %}
+RUN apt-get update && apt-get install -y \
+    chromium-browser \
+    chromium-chromedriver \
+    && rm -rf /var/lib/apt/lists/*
+{% elif backend_type == "database" %}
+RUN apt-get update && apt-get install -y \
+    libpq-dev \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+{% endif %}
+
+# Copy requirements and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Create non-root user
+RUN useradd -m -u 1000 mcpuser && chown -R mcpuser:mcpuser /app
+USER mcpuser
+
+# Expose port (if needed)
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD python -c "import sys; sys.exit(0)"
+
+# Start the server
+CMD ["python", "server.py"]
+```
+
+#### docker-compose.yml
+
+```yaml
+version: '3.8'
+
+services:
+  {{ project_name | kebab_case }}:
+    build: .
+    container_name: {{ project_name | kebab_case }}
+    restart: unless-stopped
+    environment:
+{% if backend_type == "database" %}
+      - DATABASE_URL=${DATABASE_URL}
+{% elif backend_type == "api" %}
+      - API_BASE_URL=${API_BASE_URL}
+      - API_KEY=${API_KEY}
+{% elif backend_type == "filesystem" %}
+      - FS_ALLOWED_PATHS=/app/data
+    volumes:
+      - ./data:/app/data
+{% elif backend_type == "webscraper" %}
+      - SCRAPER_USER_AGENT={{ project_name | pascal_case }}/1.0
+      - SCRAPER_RATE_LIMIT=1
+{% endif %}
+    # Uncomment if you need network access
+    # ports:
+    #   - "8000:8000"
+    
+{% if backend_type == "database" %}
+  database:
+    image: postgres:15
+    container_name: {{ project_name | kebab_case }}-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=mcpdb
+      - POSTGRES_USER=mcpuser
+      - POSTGRES_PASSWORD=mcppass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+volumes:
+  postgres_data:
+{% endif %}
+```
+
+Build and run:
+```bash
+# Build the image
+docker build -t {{ project_name | kebab_case }} .
+
+# Run with docker-compose
+docker-compose up -d
+
+# View logs
+docker-compose logs -f {{ project_name | kebab_case }}
+```
+
+### 4. Cloud Deployment
+
+#### AWS EC2
+
+1. **Launch EC2 Instance**:
+   - Choose Ubuntu 22.04 LTS
+   - Instance type: t3.micro (for testing) or larger
+   - Configure security groups for SSH access
+
+2. **Setup Script**:
+```bash
+#!/bin/bash
+# EC2 user data script
+
+# Update system
+apt-get update && apt-get upgrade -y
+
+# Install Python and Git
+apt-get install -y python3.11 python3.11-pip python3.11-venv git
+
+# Create application user
+useradd -m -s /bin/bash mcpuser
+
+# Clone your repository
+cd /home/mcpuser
+git clone https://github.com/yourusername/{{ project_name | kebab_case }}.git
+cd {{ project_name | kebab_case }}
+
+# Setup Python environment
+python3.11 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Configure environment
+cp .env.template .env
+# You'll need to edit .env with actual values
+
+# Set ownership
+chown -R mcpuser:mcpuser /home/mcpuser/{{ project_name | kebab_case }}
+
+# Create systemd service
+cat > /etc/systemd/system/{{ project_name | kebab_case }}.service << EOF
+[Unit]
+Description={{ project_name | pascal_case }} MCP Server
+After=network.target
+
+[Service]
+Type=simple
+User=mcpuser
+WorkingDirectory=/home/mcpuser/{{ project_name | kebab_case }}
+Environment=PATH=/home/mcpuser/{{ project_name | kebab_case }}/venv/bin
+ExecStart=/home/mcpuser/{{ project_name | kebab_case }}/venv/bin/python server.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Enable and start service
+systemctl enable {{ project_name | kebab_case }}
+systemctl start {{ project_name | kebab_case }}
+```
+
+#### Google Cloud Platform
+
+```bash
+# Create VM instance
+gcloud compute instances create {{ project_name | kebab_case }}-vm \
+  --zone=us-central1-a \
+  --machine-type=e2-micro \
+  --image-family=ubuntu-2204-lts \
+  --image-project=ubuntu-os-cloud \
+  --metadata-from-file startup-script=startup-script.sh
+
+# SSH into instance
+gcloud compute ssh {{ project_name | kebab_case }}-vm --zone=us-central1-a
+```
+
+#### Azure
+
+```bash
+# Create resource group
+az group create --name {{ project_name | kebab_case }}-rg --location eastus
+
+# Create VM
+az vm create \
+  --resource-group {{ project_name | kebab_case }}-rg \
+  --name {{ project_name | kebab_case }}-vm \
+  --image Ubuntu2204 \
+  --admin-username azureuser \
+  --generate-ssh-keys \
+  --custom-data startup-script.sh
+
+# SSH into VM
+az vm show --resource-group {{ project_name | kebab_case }}-rg --name {{ project_name | kebab_case }}-vm -d --query publicIps -o tsv
+ssh azureuser@<public-ip>
+```
+
+### 5. Kubernetes Deployment
+
+#### Deployment Manifests
+
+**deployment.yaml**:
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ project_name | kebab_case }}
+  labels:
+    app: {{ project_name | kebab_case }}
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: {{ project_name | kebab_case }}
+  template:
+    metadata:
+      labels:
+        app: {{ project_name | kebab_case }}
+    spec:
+      containers:
+      - name: {{ project_name | kebab_case }}
+        image: {{ project_name | kebab_case }}:latest
+        ports:
+        - containerPort: 8000
+        env:
+{% if backend_type == "database" %}
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: {{ project_name | kebab_case }}-secrets
+              key: database-url
+{% elif backend_type == "api" %}
+        - name: API_BASE_URL
+          value: "https://api.example.com"
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ project_name | kebab_case }}-secrets
+              key: api-key
+{% endif %}
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "250m"
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
+        livenessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import sys; sys.exit(0)"
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import sys; sys.exit(0)"
+          initialDelaySeconds: 5
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ project_name | kebab_case }}-service
+spec:
+  selector:
+    app: {{ project_name | kebab_case }}
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8000
+  type: ClusterIP
+```
+
+**secrets.yaml**:
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ project_name | kebab_case }}-secrets
+type: Opaque
+data:
+{% if backend_type == "database" %}
+  database-url: <base64-encoded-database-url>
+{% elif backend_type == "api" %}
+  api-key: <base64-encoded-api-key>
+{% endif %}
+```
+
+Deploy to Kubernetes:
+```bash
+# Create secrets
+kubectl apply -f secrets.yaml
+
+# Deploy application
+kubectl apply -f deployment.yaml
+
+# Check status
+kubectl get pods -l app={{ project_name | kebab_case }}
+kubectl logs -l app={{ project_name | kebab_case }}
+```
+
+## Configuration Management
+
+### Environment Variables
+
+{% if backend_type == "database" %}
+**Required**:
+- `DATABASE_URL`: Database connection string
+
+**Optional**:
+- `DB_POOL_SIZE`: Connection pool size (default: 5)
+- `DB_TIMEOUT`: Query timeout in seconds (default: 30)
+- `LOG_LEVEL`: Logging level (default: INFO)
+{% elif backend_type == "api" %}
+**Required**:
+- `API_BASE_URL`: Base URL for API
+- `API_KEY` or `BEARER_TOKEN`: Authentication credentials
+
+**Optional**:
+- `API_AUTH_TYPE`: Authentication type (default: bearer)
+- `ALLOWED_ENDPOINTS`: Comma-separated allowed endpoints
+- `LOG_LEVEL`: Logging level (default: INFO)
+{% elif backend_type == "filesystem" %}
+**Required**:
+- `FS_ALLOWED_PATHS`: Comma-separated allowed paths
+
+**Optional**:
+- `FS_READ_ONLY`: Read-only mode (default: false)
+- `FS_MAX_FILE_SIZE`: Max file size in bytes (default: 10MB)
+- `LOG_LEVEL`: Logging level (default: INFO)
+{% elif backend_type == "webscraper" %}
+**Required**:
+- None (all have defaults)
+
+**Optional**:
+- `SCRAPER_USER_AGENT`: User agent string
+- `SCRAPER_RATE_LIMIT`: Rate limit delay in seconds
+- `SCRAPER_TIMEOUT`: Request timeout in seconds
+- `LOG_LEVEL`: Logging level (default: INFO)
+{% endif %}
+
+### Secrets Management
+
+#### Using Docker Secrets
+```bash
+# Create secrets
+echo "your-secret-value" | docker secret create {{ project_name | kebab_case }}-secret -
+
+# Use in docker-compose.yml
+services:
+  {{ project_name | kebab_case }}:
+    secrets:
+      - {{ project_name | kebab_case }}-secret
+    environment:
+      - SECRET_FILE=/run/secrets/{{ project_name | kebab_case }}-secret
+
+secrets:
+  {{ project_name | kebab_case }}-secret:
+    external: true
+```
+
+#### Using Kubernetes Secrets
+```bash
+# Create secret from command line
+kubectl create secret generic {{ project_name | kebab_case }}-secrets \
+{% if backend_type == "database" %}
+  --from-literal=database-url="postgresql://user:pass@host/db"
+{% elif backend_type == "api" %}
+  --from-literal=api-key="your-api-key"
+{% endif %}
+
+# Or from file
+kubectl create secret generic {{ project_name | kebab_case }}-secrets \
+  --from-env-file=.env
+```
+
+## Monitoring and Logging
+
+### Logging Configuration
+
+Create `config/logging.yaml`:
+```yaml
+version: 1
+disable_existing_loggers: false
+
+formatters:
+  standard:
+    format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+  json:
+    format: "%(asctime)s %(name)s %(levelname)s %(message)s"
+    class: pythonjsonlogger.jsonlogger.JsonFormatter
+
+handlers:
+  console:
+    class: logging.StreamHandler
+    level: INFO
+    formatter: standard
+    stream: ext://sys.stdout
+  
+  file:
+    class: logging.handlers.RotatingFileHandler
+    level: DEBUG
+    formatter: json
+    filename: logs/{{ project_name }}.log
+    maxBytes: 10485760  # 10MB
+    backupCount: 5
+
+  syslog:
+    class: logging.handlers.SysLogHandler
+    level: INFO
+    formatter: standard
+    address: /dev/log
+
+loggers:
+  "":
+    level: INFO
+    handlers: [console, file]
+    propagate: false
+  
+  {{ project_name | snake_case }}:
+    level: DEBUG
+    handlers: [console, file]
+    propagate: false
+```
+
+### Health Checks
+
+Add health check endpoint to `server.py`:
+```python
+@mcp.tool()
+async def health_check() -> dict:
+    """Health check endpoint for monitoring."""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "version": "1.0.0",
+{% if backend_type == "database" %}
+        "database": await _check_database_health()
+{% elif backend_type == "api" %}
+        "api": await _check_api_health()
+{% endif %}
+    }
+```
+
+### Monitoring with Prometheus
+
+Create `prometheus.yml`:
+```yaml
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: '{{ project_name | kebab_case }}'
+    static_configs:
+      - targets: ['localhost:8000']
+    metrics_path: /metrics
+    scrape_interval: 5s
+```
+
+## Security Considerations
+
+### Network Security
+- Use HTTPS/TLS for all external communications
+- Configure firewalls to allow only necessary ports
+- Use VPNs or private networks when possible
+
+### Application Security
+- Keep dependencies updated
+- Use environment variables for secrets
+- Implement proper input validation
+- Enable audit logging
+
+### Infrastructure Security
+- Regular security updates
+- Access control and authentication
+- Network segmentation
+- Backup and disaster recovery
+
+## Backup and Recovery
+
+{% if backend_type == "database" %}
+### Database Backups
+```bash
+# PostgreSQL backup
+pg_dump -h localhost -U username -d database > backup.sql
+
+# Automated backup script
+#!/bin/bash
+BACKUP_DIR="/var/backups/{{ project_name }}"
+DATE=$(date +%Y%m%d_%H%M%S)
+pg_dump -h localhost -U username -d database | gzip > "$BACKUP_DIR/backup_$DATE.sql.gz"
+
+# Keep only last 7 days
+find "$BACKUP_DIR" -name "backup_*.sql.gz" -mtime +7 -delete
+```
+{% endif %}
+
+### Application Backups
+```bash
+# Backup configuration and logs
+tar -czf {{ project_name }}-backup-$(date +%Y%m%d).tar.gz \
+  config/ logs/ .env scripts/
+```
+
+### Disaster Recovery
+1. Document recovery procedures
+2. Test backup restoration regularly
+3. Maintain infrastructure as code
+4. Have monitoring and alerting in place
+
+## Performance Tuning
+
+### Python Optimization
+```python
+# Use connection pooling
+{% if backend_type == "database" %}
+# Database connections are pooled by default
+{% elif backend_type == "api" %}
+# HTTP connections use connection pooling
+{% endif %}
+
+# Enable async operations
+import asyncio
+import uvloop  # For better async performance
+
+asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+```
+
+### Resource Limits
+```yaml
+# Docker resource limits
+resources:
+  limits:
+    memory: 512Mi
+    cpu: 500m
+  requests:
+    memory: 256Mi
+    cpu: 250m
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Permission Errors**
+   - Check file/directory permissions
+   - Verify user has necessary access rights
+
+2. **Network Issues**
+   - Check firewall settings
+   - Verify DNS resolution
+   - Test connectivity with tools like `curl` or `telnet`
+
+3. **Memory Issues**
+   - Monitor memory usage with `htop` or `ps`
+   - Adjust resource limits
+   - Check for memory leaks
+
+4. **Performance Issues**
+   - Enable debug logging
+   - Monitor CPU and memory usage
+   - Check network latency
+
+### Debugging Tools
+
+```bash
+# System monitoring
+htop
+iostat -x 1
+netstat -tuln
+
+# Application debugging
+python -m pdb server.py
+python -m cProfile server.py
+
+# Network debugging
+curl -v https://api.example.com
+tcpdump -i any port 80
+
+# Log analysis
+tail -f logs/{{ project_name }}.log
+grep "ERROR" logs/{{ project_name }}.log
+```
+
+---
+
+This deployment guide provides comprehensive instructions for deploying your {{ project_name }} MCP server in various environments. Choose the deployment method that best fits your requirements and infrastructure.
