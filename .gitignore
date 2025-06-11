@@ -156,3 +156,10 @@ temp_projects/
 test_outputs/
 
 .claude/
+
+
+build_and_upload.sh
+build_and_upload_venv.sh
+upload_to_pypi.sh
+upload_to_testpypi.sh
+.pypirc
