@@ -5,15 +5,22 @@ from pathlib import Path
 from typing import Dict, Any, List
 from jinja2 import Environment, FileSystemLoader, select_autoescape, Template
 
+try:
+    from jinja2.sandbox import SandboxedEnvironment
+except ImportError:
+    # Fallback for older versions of Jinja2
+    SandboxedEnvironment = Environment
+
 
 class TemplateManager:
     """Manages Jinja2 templates for project generation."""
     
     def __init__(self):
         self.template_dir = Path(__file__).parent.parent / "templates"
-        self.env = Environment(
+        # Use SandboxedEnvironment for security
+        self.env = SandboxedEnvironment(
             loader=FileSystemLoader(str(self.template_dir)),
-            autoescape=select_autoescape(['html', 'xml']),
+            autoescape=select_autoescape(['html', 'xml']),  # Don't autoescape Python files
             trim_blocks=True,
             lstrip_blocks=True
         )

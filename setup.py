@@ -8,5 +8,5 @@ from setuptools import setup
 
 setup(
     name="modelcontextkit",
-    version="0.1.1",
+    version="0.1.2",
 )

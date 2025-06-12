@@ -62,96 +62,84 @@ class APIBackend(BaseBackend):
                     },
                     "required": ["endpoint"]
                 },
-                "implementation": '''endpoint = arguments.get("endpoint", "")
-        method = arguments.get("method", "GET")
-        data = arguments.get("data")
-        params = arguments.get("params")
-        headers = arguments.get("headers")
+                "implementation": '''
+endpoint = arguments.get("endpoint", "")
+method = arguments.get("method", "GET")
+data = arguments.get("data")
+params = arguments.get("params")
+headers = arguments.get("headers")
+
+logger.info(f"Making {method} request to {endpoint}")
+
+# Validate endpoint
+if not _validate_endpoint(endpoint):
+    raise ValueError(f"Invalid endpoint: {endpoint}")
+
+# Check rate limiting
+if not await _check_rate_limit():
+    raise ValueError("Rate limit exceeded. Please wait before making more requests.")
+
+# Prepare URL
+url = _build_url(endpoint)
+
+# Prepare headers with authentication
+request_headers = await _prepare_headers(headers or {})
+
+# Prepare request data
+request_data = data or {}
+request_params = params or {}
+
+# Make request using httpx client
+async with get_http_client() as client:
+    response = await client.request(
+        method=method.upper(),
+        url=url,
+        json=request_data if method.upper() in ['POST', 'PUT', 'PATCH'] and request_data else None,
+        params=request_params,
+        headers=request_headers,
+        timeout=REQUEST_TIMEOUT
+    )
+    
+    # Log request details (without sensitive data)
+    await _log_request(method, url, response.status_code)
+    
+    # Handle response
+    if response.status_code >= 400:
+        error_detail = await _extract_error_detail(response)
+        error_data = {
+            "success": False,
+            "status_code": response.status_code,
+            "error": f"HTTP {response.status_code}: {error_detail}",
+            "headers": dict(response.headers)
+        }
         
-        try:
-            logger.info(f"Making {method} request to {endpoint}")
-            
-            # Validate endpoint
-            if not _validate_endpoint(endpoint):
-                raise ValueError(f"Invalid endpoint: {endpoint}")
-            
-            # Check rate limiting
-            if not await _check_rate_limit():
-                raise ValueError("Rate limit exceeded. Please wait before making more requests.")
-            
-            # Prepare URL
-            url = _build_url(endpoint)
-            
-            # Prepare headers with authentication
-            request_headers = await _prepare_headers(headers or {})
-            
-            # Prepare request data
-            request_data = data or {}
-            request_params = params or {}
-            
-            # Make request using httpx client
-            async with get_http_client() as client:
-                response = await client.request(
-                    method=method.upper(),
-                    url=url,
-                    json=request_data if method.upper() in ['POST', 'PUT', 'PATCH'] and request_data else None,
-                    params=request_params,
-                    headers=request_headers,
-                    timeout=REQUEST_TIMEOUT
-                )
-                
-                # Log request details (without sensitive data)
-                await _log_request(method, url, response.status_code)
-                
-                # Handle response
-                if response.status_code >= 400:
-                    error_detail = await _extract_error_detail(response)
-                    error_data = {
-                        "success": False,
-                        "status_code": response.status_code,
-                        "error": f"HTTP {response.status_code}: {error_detail}",
-                        "headers": dict(response.headers)
-                    }
-                    
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps(error_data, indent=2)
-                    )]
-                
-                # Parse response
-                try:
-                    if response.headers.get("content-type", "").startswith("application/json"):
-                        response_data = response.json()
-                    else:
-                        response_data = response.text
-                except Exception as parse_error:
-                    response_data = response.text
-                    logger.warning(f"Failed to parse JSON response: {parse_error}")
-                
-                result_data = {
-                    "success": True,
-                    "status_code": response.status_code,
-                    "data": response_data,
-                    "headers": dict(response.headers),
-                    "url": str(response.url)
-                }
-                
-                return [TextContent(
-                    type="text",
-                    text=json.dumps(result_data, indent=2)
-                )]
-                    
-        except Exception as e:
-            logger.error(f"API request error: {e}")
-            return [TextContent(
-                type="text",
-                text=json.dumps({
-                    "success": False,
-                    "error": str(e),
-                    "endpoint": endpoint,
-                    "method": method
-                }, indent=2)
-            )]'''
+        return [TextContent(
+            type="text",
+            text=json.dumps(error_data, indent=2)
+        )]
+    
+    # Parse response
+    try:
+        if response.headers.get("content-type", "").startswith("application/json"):
+            response_data = response.json()
+        else:
+            response_data = response.text
+    except Exception as parse_error:
+        response_data = response.text
+        logger.warning(f"Failed to parse JSON response: {parse_error}")
+    
+    result_data = {
+        "success": True,
+        "status_code": response.status_code,
+        "data": response_data,
+        "headers": dict(response.headers),
+        "url": str(response.url)
+    }
+    
+    return [TextContent(
+        type="text",
+        text=json.dumps(result_data, indent=2)
+    )]'''
             },
             {
                 "name": "get_api_status",
@@ -163,50 +151,37 @@ class APIBackend(BaseBackend):
                     "properties": {},
                     "required": []
                 },
-                "implementation": '''try:
-            logger.info("Checking API status")
-            
-            # Use health check endpoint if configured
-            health_endpoint = get_health_endpoint()
-            
-            async with get_http_client() as client:
-                start_time = time.time()
-                
-                response = await client.get(
-                    health_endpoint,
-                    headers=await _prepare_headers({}),
-                    timeout=10  # Shorter timeout for health checks
-                )
-                
-                response_time = (time.time() - start_time) * 1000  # Convert to milliseconds
-                
-                result_data = {
-                    "success": True,
-                    "status": "healthy" if response.status_code < 400 else "unhealthy",
-                    "status_code": response.status_code,
-                    "response_time_ms": round(response_time, 2),
-                    "api_url": BASE_URL,
-                    "timestamp": datetime.now().isoformat(),
-                    "rate_limit_remaining": await _get_rate_limit_remaining()
-                }
-                
-                return [TextContent(
-                    type="text",
-                    text=json.dumps(result_data, indent=2)
-                )]
-                
-        except Exception as e:
-            logger.error(f"API status check error: {e}")
-            return [TextContent(
-                type="text",
-                text=json.dumps({
-                    "success": False,
-                    "status": "error",
-                    "error": str(e),
-                    "api_url": BASE_URL,
-                    "timestamp": datetime.now().isoformat()
-                }, indent=2)
-            )]'''
+                "implementation": '''
+logger.info("Checking API status")
+
+# Use health check endpoint if configured
+health_endpoint = get_health_endpoint()
+
+async with get_http_client() as client:
+    start_time = time.time()
+    
+    response = await client.get(
+        health_endpoint,
+        headers=await _prepare_headers({}),
+        timeout=10  # Shorter timeout for health checks
+    )
+    
+    response_time = (time.time() - start_time) * 1000  # Convert to milliseconds
+    
+    result_data = {
+        "success": True,
+        "status": "healthy" if response.status_code < 400 else "unhealthy",
+        "status_code": response.status_code,
+        "response_time_ms": round(response_time, 2),
+        "api_url": BASE_URL,
+        "timestamp": datetime.now().isoformat(),
+        "rate_limit_remaining": await _get_rate_limit_remaining()
+    }
+    
+    return [TextContent(
+        type="text",
+        text=json.dumps(result_data, indent=2)
+    )]'''
             },
             {
                 "name": "list_endpoints",
@@ -218,74 +193,64 @@ class APIBackend(BaseBackend):
                     "properties": {},
                     "required": []
                 },
-                "implementation": '''try:
-            logger.info("Discovering API endpoints")
+                "implementation": '''
+logger.info("Discovering API endpoints")
+
+# Try common discovery endpoints
+discovery_endpoints = [
+    "/", "/api", "/swagger.json", "/openapi.json", 
+    "/docs", "/api/docs", "/.well-known/endpoints"
+]
+
+discovered_endpoints = []
+
+async with get_http_client() as client:
+    for endpoint in discovery_endpoints:
+        try:
+            response = await client.get(
+                _build_url(endpoint),
+                headers=await _prepare_headers({}),
+                timeout=5
+            )
             
-            # Try common discovery endpoints
-            discovery_endpoints = [
-                "/", "/api", "/swagger.json", "/openapi.json", 
-                "/docs", "/api/docs", "/.well-known/endpoints"
-            ]
-            
-            discovered_endpoints = []
-            
-            async with get_http_client() as client:
-                for endpoint in discovery_endpoints:
-                    try:
-                        response = await client.get(
-                            _build_url(endpoint),
-                            headers=await _prepare_headers({}),
-                            timeout=5
-                        )
-                        
-                        if response.status_code == 200:
-                            content_type = response.headers.get("content-type", "")
-                            
-                            if "application/json" in content_type:
-                                data = response.json()
-                                
-                                # Extract endpoints from OpenAPI/Swagger
-                                if "paths" in data:
-                                    for path, methods in data["paths"].items():
-                                        for method, details in methods.items():
-                                            discovered_endpoints.append({
-                                                "path": path,
-                                                "method": method.upper(),
-                                                "summary": details.get("summary", ""),
-                                                "description": details.get("description", "")
-                                            })
-                            
-                            discovered_endpoints.append({
-                                "path": endpoint,
-                                "method": "GET",
-                                "status": "available",
-                                "content_type": content_type
-                            })
-                            
-                    except Exception:
-                        continue
-            
-            result_data = {
-                "success": True,
-                "endpoints": discovered_endpoints,
-                "discovery_attempted": len(discovery_endpoints),
-                "base_url": BASE_URL
-            }
-            
-            return [TextContent(
-                type="text",
-                text=json.dumps(result_data, indent=2)
-            )]
-            
-        except Exception as e:
-            logger.error(f"Endpoint discovery error: {e}")
-            return [TextContent(
-                type="text",
-                text=json.dumps({
-                    "success": False,
-                    "error": str(e)
-                }, indent=2)
-            )]'''
+            if response.status_code == 200:
+                content_type = response.headers.get("content-type", "")
+                
+                if "application/json" in content_type:
+                    data = response.json()
+                    
+                    # Extract endpoints from OpenAPI/Swagger
+                    if "paths" in data:
+                        for path, methods in data["paths"].items():
+                            for method, details in methods.items():
+                                discovered_endpoints.append({
+                                    "path": path,
+                                    "method": method.upper(),
+                                    "summary": details.get("summary", ""),
+                                    "description": details.get("description", "")
+                                })
+                
+                discovered_endpoints.append({
+                    "path": endpoint,
+                    "method": "GET",
+                    "status": "available",
+                    "content_type": content_type
+                })
+                
+        except Exception:
+            continue
+
+result_data = {
+    "success": True,
+    "endpoints": discovered_endpoints,
+    "discovery_attempted": len(discovery_endpoints),
+    "base_url": BASE_URL
+}
+
+return [TextContent(
+    type="text",
+    text=json.dumps(result_data, indent=2)
+)]'''
             },
             {
                 "name": "validate_auth",
@@ -297,82 +262,71 @@ class APIBackend(BaseBackend):
                     "properties": {},
                     "required": []
                 },
-                "implementation": '''try:
-            logger.info("Validating API authentication")
+                "implementation": '''
+logger.info("Validating API authentication")
+
+# Try to access a protected endpoint or user info
+auth_test_endpoints = [
+    "/user", "/me", "/auth/verify", "/api/user", 
+    "/account", "/profile", "/whoami"
+]
+
+auth_results = []
+
+async with get_http_client() as client:
+    for endpoint in auth_test_endpoints:
+        try:
+            response = await client.get(
+                _build_url(endpoint),
+                headers=await _prepare_headers({}),
+                timeout=10
+            )
             
-            # Try to access a protected endpoint or user info
-            auth_test_endpoints = [
-                "/user", "/me", "/auth/verify", "/api/user", 
-                "/account", "/profile", "/whoami"
-            ]
+            auth_results.append({
+                "endpoint": endpoint,
+                "status_code": response.status_code,
+                "authenticated": response.status_code not in [401, 403],
+                "response_size": len(response.content)
+            })
             
-            auth_results = []
-            
-            async with get_http_client() as client:
-                for endpoint in auth_test_endpoints:
-                    try:
-                        response = await client.get(
-                            _build_url(endpoint),
-                            headers=await _prepare_headers({}),
-                            timeout=10
-                        )
-                        
-                        auth_results.append({
+            # If we get a successful response, try to extract user info
+            if response.status_code == 200:
+                try:
+                    user_data = response.json()
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps({
+                            "success": True,
+                            "authenticated": True,
                             "endpoint": endpoint,
-                            "status_code": response.status_code,
-                            "authenticated": response.status_code not in [401, 403],
-                            "response_size": len(response.content)
-                        })
-                        
-                        # If we get a successful response, try to extract user info
-                        if response.status_code == 200:
-                            try:
-                                user_data = response.json()
-                                return [TextContent(
-                                    type="text",
-                                    text=json.dumps({
-                                        "success": True,
-                                        "authenticated": True,
-                                        "endpoint": endpoint,
-                                        "user_info": user_data,
-                                        "auth_type": AUTH_TYPE
-                                    }, indent=2)
-                                )]
-                            except:
-                                pass
-                                
-                    except Exception as test_error:
-                        auth_results.append({
-                            "endpoint": endpoint,
-                            "error": str(test_error)
-                        })
-            
-            # Analyze results
-            authenticated_endpoints = [r for r in auth_results if r.get("authenticated", False)]
-            
-            result_data = {
-                "success": len(authenticated_endpoints) > 0,
-                "authenticated": len(authenticated_endpoints) > 0,
-                "auth_type": AUTH_TYPE,
-                "test_results": auth_results,
-                "working_endpoints": len(authenticated_endpoints)
-            }
-            
-            return [TextContent(
-                type="text",
-                text=json.dumps(result_data, indent=2)
-            )]
-            
-        except Exception as e:
-            logger.error(f"Auth validation error: {e}")
-            return [TextContent(
-                type="text",
-                text=json.dumps({
-                    "success": False,
-                    "authenticated": False,
-                    "error": str(e)
-                }, indent=2)
-            )]'''
+                            "user_info": user_data,
+                            "auth_type": AUTH_TYPE
+                        }, indent=2)
+                    )]
+                except:
+                    pass
+                    
+        except Exception as test_error:
+            auth_results.append({
+                "endpoint": endpoint,
+                "error": str(test_error)
+            })
+
+# Analyze results
+authenticated_endpoints = [r for r in auth_results if r.get("authenticated", False)]
+
+result_data = {
+    "success": len(authenticated_endpoints) > 0,
+    "authenticated": len(authenticated_endpoints) > 0,
+    "auth_type": AUTH_TYPE,
+    "test_results": auth_results,
+    "working_endpoints": len(authenticated_endpoints)
+}
+
+return [TextContent(
+    type="text",
+    text=json.dumps(result_data, indent=2)
+)]'''
             }
         ]
     
@@ -383,45 +337,39 @@ class APIBackend(BaseBackend):
                 "uri": "api://info",
                 "description": "API configuration and status information",
                 "parameters": "",
-                "implementation": '''try:
-            # Get current API configuration (without sensitive data)
-            api_info = {
-                "base_url": BASE_URL,
-                "auth_type": AUTH_TYPE,
-                "rate_limit": {
-                    "requests_per_minute": RATE_LIMIT_PER_MINUTE,
-                    "remaining": await _get_rate_limit_remaining()
-                },
-                "timeout": REQUEST_TIMEOUT,
-                "configured_endpoints": len(ALLOWED_ENDPOINTS) if ALLOWED_ENDPOINTS else "unrestricted",
-                "last_health_check": await _get_last_health_check()
-            }
-            
-            return json.dumps(api_info, indent=2)
-            
-        except Exception as e:
-            logger.error(f"API info resource error: {e}")
-            return json.dumps({"error": str(e)})'''
+                "implementation": '''
+# Get current API configuration (without sensitive data)
+api_info = {
+    "base_url": BASE_URL,
+    "auth_type": AUTH_TYPE,
+    "rate_limit": {
+        "requests_per_minute": RATE_LIMIT_PER_MINUTE,
+        "remaining": await _get_rate_limit_remaining()
+    },
+    "timeout": REQUEST_TIMEOUT,
+    "configured_endpoints": len(ALLOWED_ENDPOINTS) if ALLOWED_ENDPOINTS else "unrestricted",
+    "last_health_check": await _get_last_health_check()
+}
+
+return json.dumps(api_info, indent=2)
+'''
             },
             {
                 "name": "get_rate_limit_status",
                 "uri": "api://rate-limit",
                 "description": "Current rate limiting status and usage",
                 "parameters": "",
-                "implementation": '''try:
-            rate_limit_info = {
-                "requests_per_minute": RATE_LIMIT_PER_MINUTE,
-                "current_usage": await _get_current_usage(),
-                "remaining": await _get_rate_limit_remaining(),
-                "reset_time": await _get_rate_limit_reset_time(),
-                "window_start": await _get_rate_limit_window_start()
-            }
-            
-            return json.dumps(rate_limit_info, indent=2)
-            
-        except Exception as e:
-            logger.error(f"Rate limit resource error: {e}")
-            return json.dumps({"error": str(e)})'''
+                "implementation": '''
+rate_limit_info = {
+    "requests_per_minute": RATE_LIMIT_PER_MINUTE,
+    "current_usage": await _get_current_usage(),
+    "remaining": await _get_rate_limit_remaining(),
+    "reset_time": await _get_rate_limit_reset_time(),
+    "window_start": await _get_rate_limit_window_start()
+}
+
+return json.dumps(rate_limit_info, indent=2)
+'''
             }
         ]
     

@@ -2,6 +2,7 @@
 
 from typing import Dict, List, Any
 from modelctx.backends.base import BaseBackend
+from modelctx.utils.security import validate_sql_identifier, sanitize_for_template
 
 
 class DatabaseBackend(BaseBackend):
@@ -46,50 +47,43 @@ class DatabaseBackend(BaseBackend):
                     },
                     "required": ["query"]
                 },
-                "implementation": '''query = arguments.get("query", "")
-            parameters = arguments.get("parameters", {})
-            
-            try:
-                logger.info(f"Executing query: {query[:100]}...")
-                
-                # Validate query to prevent dangerous operations
-                if not _validate_query(query):
-                    raise ValueError("Query contains potentially dangerous operations")
-                
-                async with get_db_connection() as conn:
-                    if parameters:
-                        result = await conn.execute(text(query), parameters)
-                    else:
-                        result = await conn.execute(text(query))
-                    
-                    if result.returns_rows:
-                        rows = await result.fetchall()
-                        columns = list(result.keys())
-                        result_data = {
-                            "success": True,
-                            "columns": columns,
-                            "rows": [dict(zip(columns, row)) for row in rows],
-                            "row_count": len(rows)
-                        }
-                    else:
-                        await conn.commit()
-                        result_data = {
-                            "success": True,
-                            "message": f"Query executed successfully. Rows affected: {result.rowcount}",
-                            "rows_affected": result.rowcount
-                        }
-                    
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps(result_data, indent=2)
-                    )]
-                    
-            except Exception as e:
-                logger.error(f"Database query error: {e}")
-                return [TextContent(
-                    type="text", 
-                    text=json.dumps({"success": False, "error": str(e)}, indent=2)
-                )]'''
+                "implementation": '''
+query = arguments.get("query", "")
+parameters = arguments.get("parameters", {})
+
+logger.info(f"Executing query: {query[:100]}...")
+
+# Validate query to prevent dangerous operations
+if not _validate_query(query):
+    raise ValueError("Query contains potentially dangerous operations")
+
+async with get_db_connection() as conn:
+    if parameters:
+        result = await conn.execute(text(query), parameters)
+    else:
+        result = await conn.execute(text(query))
+    
+    if result.returns_rows:
+        rows = await result.fetchall()
+        columns = list(result.keys())
+        result_data = {
+            "success": True,
+            "columns": columns,
+            "rows": [dict(zip(columns, row)) for row in rows],
+            "row_count": len(rows)
+        }
+    else:
+        await conn.commit()
+        result_data = {
+            "success": True,
+            "message": f"Query executed successfully. Rows affected: {result.rowcount}",
+            "rows_affected": result.rowcount
+        }
+    
+    return [TextContent(
+        type="text",
+        text=json.dumps(result_data, indent=2)
+    )]'''
             },
             {
                 "name": "get_table_schema",
@@ -106,79 +100,75 @@ class DatabaseBackend(BaseBackend):
                     },
                     "required": ["table_name"]
                 },
-                "implementation": '''table_name = arguments.get("table_name", "")
-            
-            try:
-                logger.info(f"Getting schema for table: {table_name}")
-                
-                # Validate table name
-                if not _validate_table_name(table_name):
-                    raise ValueError("Invalid table name")
-                
-                async with get_db_connection() as conn:
-                    # Query varies by database type
-                    db_type = get_database_type()
-                    
-                    if db_type == "postgresql":
-                        query = """
-                            SELECT column_name, data_type, is_nullable, column_default
-                            FROM information_schema.columns
-                            WHERE table_name = :table_name
-                            ORDER BY ordinal_position
-                        """
-                    elif db_type == "mysql":
-                        query = """
-                            SELECT column_name, data_type, is_nullable, column_default
-                            FROM information_schema.columns
-                            WHERE table_name = :table_name
-                            ORDER BY ordinal_position
-                        """
-                    else:  # SQLite
-                        query = f"PRAGMA table_info({table_name})"
-                    
-                    result = await conn.execute(text(query), {"table_name": table_name})
-                    columns = await result.fetchall()
-                    
-                    if not columns:
-                        result_data = {
-                            "success": False,
-                            "error": f"Table '{table_name}' not found"
-                        }
-                    else:
-                        schema_info = []
-                        for col in columns:
-                            if db_type == "sqlite":
-                                schema_info.append({
-                                    "column_name": col[1],
-                                    "data_type": col[2],
-                                    "is_nullable": not col[3],
-                                    "column_default": col[4]
-                                })
-                            else:
-                                schema_info.append({
-                                    "column_name": col[0],
-                                    "data_type": col[1],
-                                    "is_nullable": col[2] == "YES",
-                                    "column_default": col[3]
-                                })
-                        
-                        result_data = {
-                            "success": True,
-                            "table_name": table_name,
-                            "columns": schema_info
-                        }
-                    
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps(result_data, indent=2)
-                    )]
-                    
-            except Exception as e:
-                logger.error(f"Schema query error: {e}")
-                return [TextContent(
-                    type="text",
-                    text=json.dumps({"success": False, "error": str(e)}, indent=2)
-                )]'''
+                "implementation": '''
+table_name = arguments.get("table_name", "")
+
+logger.info(f"Getting schema for table: {table_name}")
+
+# Validate table name
+if not _validate_table_name(table_name):
+    raise ValueError("Invalid table name")
+
+async with get_db_connection() as conn:
+    # Query varies by database type
+    db_type = get_database_type()
+    
+    if db_type == "postgresql":
+        query = """
+            SELECT column_name, data_type, is_nullable, column_default
+            FROM information_schema.columns
+            WHERE table_name = :table_name
+            ORDER BY ordinal_position
+        """
+    elif db_type == "mysql":
+        query = """
+            SELECT column_name, data_type, is_nullable, column_default
+            FROM information_schema.columns
+            WHERE table_name = :table_name
+            ORDER BY ordinal_position
+        """
+    else:  # SQLite
+        # Validate table name for SQLite to prevent injection
+        if not validate_sql_identifier(table_name):
+            raise ValueError(f"Invalid table name: {table_name}")
+        query = f"PRAGMA table_info({table_name})"
+    
+    result = await conn.execute(text(query), {"table_name": table_name})
+    columns = await result.fetchall()
+    
+    if not columns:
+        result_data = {
+            "success": False,
+            "error": f"Table '{table_name}' not found"
+        }
+    else:
+        schema_info = []
+        for col in columns:
+            if db_type == "sqlite":
+                schema_info.append({
+                    "column_name": col[1],
+                    "data_type": col[2],
+                    "is_nullable": not col[3],
+                    "column_default": col[4]
+                })
+            else:
+                schema_info.append({
+                    "column_name": col[0],
+                    "data_type": col[1],
+                    "is_nullable": col[2] == "YES",
+                    "column_default": col[3]
+                })
+        
+        result_data = {
+            "success": True,
+            "table_name": table_name,
+            "columns": schema_info
+        }
+    
+    return [TextContent(
+        type="text",
+        text=json.dumps(result_data, indent=2)
+    )]'''
             },
             {
                 "name": "list_tables",
@@ -190,55 +180,49 @@ class DatabaseBackend(BaseBackend):
                     "properties": {},
                     "required": []
                 },
-                "implementation": '''logger.info("Listing all tables")
-            
-            async with get_db_connection() as conn:
-                db_type = get_database_type()
-                
-                if db_type == "postgresql":
-                    query = """
-                        SELECT table_name 
-                        FROM information_schema.tables 
-                        WHERE table_schema = 'public'
-                        ORDER BY table_name
-                    """
-                elif db_type == "mysql":
-                    query = """
-                        SELECT table_name 
-                        FROM information_schema.tables 
-                        WHERE table_schema = DATABASE()
-                        ORDER BY table_name
-                    """
-                else:  # SQLite
-                    query = """
-                        SELECT name as table_name 
-                        FROM sqlite_master 
-                        WHERE type='table'
-                        ORDER BY name
-                    """
-                
-                result = await conn.execute(text(query))
-                tables = await result.fetchall()
-                
-                table_list = [row[0] for row in tables]
-                
-                result_data = {
-                    "success": True,
-                    "tables": table_list,
-                    "count": len(table_list)
-                }
-                
-                return [TextContent(
-                    type="text",
-                    text=json.dumps(result_data, indent=2)
-                )]
-                    
-            except Exception as e:
-                logger.error(f"List tables error: {e}")
-                return [TextContent(
-                    type="text",
-                    text=json.dumps({"success": False, "error": str(e)}, indent=2)
-                )]'''
+                "implementation": '''
+logger.info("Listing all tables")
+
+async with get_db_connection() as conn:
+    db_type = get_database_type()
+    
+    if db_type == "postgresql":
+        query = """
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = 'public'
+            ORDER BY table_name
+        """
+    elif db_type == "mysql":
+        query = """
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = DATABASE()
+            ORDER BY table_name
+        """
+    else:  # SQLite
+        query = """
+            SELECT name as table_name 
+            FROM sqlite_master 
+            WHERE type='table'
+            ORDER BY name
+        """
+    
+    result = await conn.execute(text(query))
+    tables = await result.fetchall()
+    
+    table_list = [row[0] for row in tables]
+    
+    result_data = {
+        "success": True,
+        "tables": table_list,
+        "count": len(table_list)
+    }
+    
+    return [TextContent(
+        type="text",
+        text=json.dumps(result_data, indent=2)
+    )]'''
             },
             {
                 "name": "get_table_stats",
@@ -255,55 +239,52 @@ class DatabaseBackend(BaseBackend):
                     },
                     "required": ["table_name"]
                 },
-                "implementation": '''table_name = arguments.get("table_name", "")
-            
-            try:
-                logger.info(f"Getting stats for table: {table_name}")
-                
-                if not _validate_table_name(table_name):
-                    raise ValueError("Invalid table name")
-                
-                async with get_db_connection() as conn:
-                    # Get row count
-                    count_query = f"SELECT COUNT(*) FROM {table_name}"
-                    result = await conn.execute(text(count_query))
-                    row_count = (await result.fetchone())[0]
-                    
-                    # Get table size (database-specific)
-                    db_type = get_database_type()
-                    size_info = {}
-                    
-                    if db_type == "postgresql":
-                        size_query = """
-                            SELECT 
-                                pg_size_pretty(pg_total_relation_size(:table_name)) as table_size,
-                                pg_size_pretty(pg_relation_size(:table_name)) as data_size
-                        """
-                        size_result = await conn.execute(text(size_query), {"table_name": table_name})
-                        size_row = await size_result.fetchone()
-                        size_info = {
-                            "total_size": size_row[0],
-                            "data_size": size_row[1]
-                        }
-                    
-                    result_data = {
-                        "success": True,
-                        "table_name": table_name,
-                        "row_count": row_count,
-                        "size_info": size_info
-                    }
-                    
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps(result_data, indent=2)
-                    )]
-                        
-            except Exception as e:
-                logger.error(f"Table stats error: {e}")
-                return [TextContent(
-                    type="text",
-                    text=json.dumps({"success": False, "error": str(e)}, indent=2)
-                )]'''
+                "implementation": '''
+table_name = arguments.get("table_name", "")
+
+logger.info(f"Getting stats for table: {table_name}")
+
+if not _validate_table_name(table_name):
+    raise ValueError("Invalid table name")
+
+# Additional security validation
+if not validate_sql_identifier(table_name):
+    raise ValueError("Invalid table name for security")
+
+async with get_db_connection() as conn:
+    # Get row count - safe because table_name is validated
+    count_query = f"SELECT COUNT(*) FROM {table_name}"
+    result = await conn.execute(text(count_query))
+    row_count = (await result.fetchone())[0]
+    
+    # Get table size (database-specific)
+    db_type = get_database_type()
+    size_info = {}
+    
+    if db_type == "postgresql":
+        size_query = """
+            SELECT 
+                pg_size_pretty(pg_total_relation_size(:table_name)) as table_size,
+                pg_size_pretty(pg_relation_size(:table_name)) as data_size
+        """
+        size_result = await conn.execute(text(size_query), {"table_name": table_name})
+        size_row = await size_result.fetchone()
+        size_info = {
+            "total_size": size_row[0],
+            "data_size": size_row[1]
+        }
+    
+    result_data = {
+        "success": True,
+        "table_name": table_name,
+        "row_count": row_count,
+        "size_info": size_info
+    }
+    
+    return [TextContent(
+        type="text",
+        text=json.dumps(result_data, indent=2)
+    )]'''
             }
         ]
     
@@ -314,51 +295,47 @@ class DatabaseBackend(BaseBackend):
                 "uri": "db://tables",
                 "description": "List of all database tables",
                 "parameters": "",
-                "implementation": '''try:
-                async with get_db_connection() as conn:
-                    db_type = get_database_type()
-                
-                if db_type == "postgresql":
-                query = """
-                    SELECT table_name, table_type
-                    FROM information_schema.tables 
-                    WHERE table_schema = 'public'
-                    ORDER BY table_name
-                """
-            elif db_type == "mysql":
-                query = """
-                    SELECT table_name, table_type
-                    FROM information_schema.tables 
-                    WHERE table_schema = DATABASE()
-                    ORDER BY table_name
-                """
-            else:  # SQLite
-                query = """
-                    SELECT name as table_name, 'BASE TABLE' as table_type
-                    FROM sqlite_master 
-                    WHERE type='table'
-                    ORDER BY name
-                """
-            
-            result = await conn.execute(text(query))
-            tables = await result.fetchall()
-            
-            table_info = []
-            for row in tables:
-                table_info.append({
-                    "name": row[0],
-                    "type": row[1]
-                })
-            
-            return json.dumps({
-                "database_type": db_type,
-                "tables": table_info,
-                "count": len(table_info)
-            }, indent=2)
-            
-        except Exception as e:
-            logger.error(f"Resource error: {e}")
-            return json.dumps({"error": str(e)})
+                "implementation": '''
+async with get_db_connection() as conn:
+    db_type = get_database_type()
+    
+    if db_type == "postgresql":
+        query = """
+            SELECT table_name, table_type
+            FROM information_schema.tables 
+            WHERE table_schema = 'public'
+            ORDER BY table_name
+        """
+    elif db_type == "mysql":
+        query = """
+            SELECT table_name, table_type
+            FROM information_schema.tables 
+            WHERE table_schema = DATABASE()
+            ORDER BY table_name
+        """
+    else:  # SQLite
+        query = """
+            SELECT name as table_name, 'BASE TABLE' as table_type
+            FROM sqlite_master 
+            WHERE type='table'
+            ORDER BY name
+        """
+    
+    result = await conn.execute(text(query))
+    tables = await result.fetchall()
+    
+    table_info = []
+    for row in tables:
+        table_info.append({
+            "name": row[0],
+            "type": row[1]
+        })
+    
+    return json.dumps({
+        "database_type": db_type,
+        "tables": table_info,
+        "count": len(table_info)
+    }, indent=2)
 '''
             },
             {
@@ -366,17 +343,60 @@ class DatabaseBackend(BaseBackend):
                 "uri": "db://schema/{table_name}",
                 "description": "Schema information for a specific table",
                 "parameters": "table_name: str",
-                "implementation": '''try:
-            if not _validate_table_name(table_name):
-                raise ValueError("Invalid table name")
-            
-            # Use the get_table_schema tool internally
-            schema_result = await get_table_schema(table_name)
-            return json.dumps(schema_result, indent=2)
-            
-        except Exception as e:
-            logger.error(f"Schema resource error: {e}")
-            return json.dumps({"error": str(e)})
+                "implementation": '''
+# Extract table name from URI
+table_name = uri.split("/")[-1]
+
+if not _validate_table_name(table_name):
+    raise ValueError("Invalid table name")
+
+# Use similar logic to get_table_schema tool
+async with get_db_connection() as conn:
+    db_type = get_database_type()
+    
+    if db_type == "postgresql":
+        query = """
+            SELECT column_name, data_type, is_nullable, column_default
+            FROM information_schema.columns
+            WHERE table_name = :table_name
+            ORDER BY ordinal_position
+        """
+    elif db_type == "mysql":
+        query = """
+            SELECT column_name, data_type, is_nullable, column_default
+            FROM information_schema.columns
+            WHERE table_name = :table_name
+            ORDER BY ordinal_position
+        """
+    else:  # SQLite
+        if not validate_sql_identifier(table_name):
+            raise ValueError(f"Invalid table name: {table_name}")
+        query = f"PRAGMA table_info({table_name})"
+    
+    result = await conn.execute(text(query), {"table_name": table_name})
+    columns = await result.fetchall()
+    
+    schema_info = []
+    for col in columns:
+        if db_type == "sqlite":
+            schema_info.append({
+                "column_name": col[1],
+                "data_type": col[2],
+                "is_nullable": not col[3],
+                "column_default": col[4]
+            })
+        else:
+            schema_info.append({
+                "column_name": col[0],
+                "data_type": col[1],
+                "is_nullable": col[2] == "YES",
+                "column_default": col[3]
+            })
+    
+    return json.dumps({
+        "table_name": table_name,
+        "columns": schema_info
+    }, indent=2)
 '''
             }
         ]
@@ -492,10 +512,8 @@ def _validate_table_name(table_name: str) -> bool:
 '''
     
     def get_cleanup_code(self) -> str:
-        return '''
-# Close database connections
-await engine.dispose()
-'''
+        return '''# Close database connections
+        await engine.dispose()'''
     
     def validate_config(self) -> List[str]:
         errors = []

@@ -4,7 +4,7 @@ import re
 import os
 from pathlib import Path
 from urllib.parse import urlparse
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Dict, Any
 
 
 def validate_project_name(name: str) -> bool:
@@ -285,7 +285,7 @@ def validate_ip_address(ip: str) -> bool:
     return False
 
 
-def get_validation_errors(data: dict, schema: dict) -> List[str]:
+def get_validation_errors(data: Dict[str, Any], schema: Dict[str, Any]) -> List[str]:
     """
     Validate data against a simple schema and return errors.
     
@@ -306,7 +306,7 @@ def get_validation_errors(data: dict, schema: dict) -> List[str]:
     return errors
 
 
-def validate_field(field_name: str, value: any, rules: dict) -> List[str]:
+def validate_field(field_name: str, value: Any, rules: Dict[str, Any]) -> List[str]:
     """
     Validate a single field against rules.
     

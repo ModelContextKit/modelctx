@@ -33,65 +33,55 @@ class EmailBackend(BaseBackend):
                 "parameters": "to: str, subject: str, body: str, cc: str = None, bcc: str = None, html_body: str = None, attachments: list = None",
                 "return_type": "dict",
                 "implementation": '''
-    try:
-        logger.info(f"Sending email to: {to}")
-        
-        # Validate email addresses
-        if not await _validate_email_address(to):
-            raise ValueError(f"Invalid recipient email address: {to}")
-        
-        # Validate CC and BCC if provided
-        if cc and not await _validate_email_address(cc):
-            raise ValueError(f"Invalid CC email address: {cc}")
-        
-        if bcc and not await _validate_email_address(bcc):
-            raise ValueError(f"Invalid BCC email address: {bcc}")
-        
-        # Check rate limiting
-        if not await _check_send_rate_limit():
-            return {
-                "success": False,
-                "error": "Email sending rate limit exceeded",
-                "rate_limit": True
-            }
-        
-        # Create email message
-        message = await _create_email_message(
-            to=to,
-            subject=subject,
-            body=body,
-            cc=cc,
-            bcc=bcc,
-            html_body=html_body,
-            attachments=attachments or []
-        )
-        
-        # Send email via SMTP
-        async with get_smtp_client() as smtp:
-            await smtp.send_message(message)
-        
-        # Record sent email for rate limiting
-        await _record_sent_email()
-        
-        return {
-            "success": True,
-            "message_id": message["Message-ID"],
-            "to": to,
-            "cc": cc,
-            "bcc": bcc,
-            "subject": subject,
-            "timestamp": datetime.now().isoformat(),
-            "attachments_count": len(attachments) if attachments else 0
-        }
-        
-    except Exception as e:
-        logger.error(f"Email sending error: {e}")
+    logger.info(f"Sending email to: {to}")
+    
+    # Validate email addresses
+    if not await _validate_email_address(to):
+        raise ValueError(f"Invalid recipient email address: {to}")
+    
+    # Validate CC and BCC if provided
+    if cc and not await _validate_email_address(cc):
+        raise ValueError(f"Invalid CC email address: {cc}")
+    
+    if bcc and not await _validate_email_address(bcc):
+        raise ValueError(f"Invalid BCC email address: {bcc}")
+    
+    # Check rate limiting
+    if not await _check_send_rate_limit():
         return {
             "success": False,
-            "error": str(e),
-            "to": to,
-            "subject": subject
+            "error": "Email sending rate limit exceeded",
+            "rate_limit": True
         }
+    
+    # Create email message
+    message = await _create_email_message(
+        to=to,
+        subject=subject,
+        body=body,
+        cc=cc,
+        bcc=bcc,
+        html_body=html_body,
+        attachments=attachments or []
+    )
+    
+    # Send email via SMTP
+    async with get_smtp_client() as smtp:
+        await smtp.send_message(message)
+    
+    # Record sent email for rate limiting
+    await _record_sent_email()
+    
+    return {
+        "success": True,
+        "message_id": message["Message-ID"],
+        "to": to,
+        "cc": cc,
+        "bcc": bcc,
+        "subject": subject,
+        "timestamp": datetime.now().isoformat(),
+        "attachments_count": len(attachments) if attachments else 0
+    }
 '''
             },
             {

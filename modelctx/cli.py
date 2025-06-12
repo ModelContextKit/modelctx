@@ -3,7 +3,7 @@
 import os
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 import click
 from rich.console import Console
@@ -13,34 +13,19 @@ from rich.text import Text
 
 from modelctx.core.generator import ProjectGenerator
 from modelctx.core.config import ConfigWizard
-from modelctx.backends import AVAILABLE_BACKENDS
+from modelctx.core.backend_registry import backend_registry
 from modelctx.utils.validation import validate_project_name
+from modelctx.utils.logging import get_logger, configure_root_logger
+from modelctx.utils.error_handling import format_cli_error, format_cli_warning, format_cli_success
+from modelctx.exceptions import ModelCtxError, ValidationError
 
 console = Console()
+logger = get_logger("cli")
 
-# Validate that hardcoded backend list matches available backends
-_BACKEND_CHOICES = ["database", "api", "filesystem", "webscraper", "email", "cloudstorage"]
-
-def _validate_backend_sync():
-    """Ensure hardcoded backend choices match available backends."""
-    available = set(AVAILABLE_BACKENDS.keys())
-    choices = set(_BACKEND_CHOICES)
-    if available != choices:
-        missing_in_choices = available - choices
-        missing_in_available = choices - available
-        error_msg = "Backend list sync error:\n"
-        if missing_in_choices:
-            error_msg += f"  Missing in CLI choices: {missing_in_choices}\n"
-        if missing_in_available:
-            error_msg += f"  Missing in available backends: {missing_in_available}\n"
-        raise RuntimeError(error_msg)
-
-# Validate on import
-try:
-    _validate_backend_sync()
-except RuntimeError as e:
-    console.print(f"[red]ERROR: {e}[/red]")
-    sys.exit(1)
+# Get backend choices dynamically from registry
+def get_backend_choices() -> List[str]:
+    """Get available backend choices."""
+    return backend_registry.get_backend_names()
 
 
 @click.group()
@@ -51,8 +36,13 @@ def cli(ctx: click.Context, verbose: bool) -> None:
     """MCP Quick Setup Tool - Create MCP servers with ease."""
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
+    
+    # Configure logging based on verbosity
+    configure_root_logger(verbose)
+    
     if verbose:
         console.print("[dim]Verbose mode enabled[/dim]")
+        logger.debug("Verbose logging enabled")
 
 
 @cli.command()
@@ -65,7 +55,7 @@ def list() -> None:
     table.add_column("Description", style="white", width=50)
     table.add_column("Dependencies", style="yellow", width=30)
     
-    for backend_name, backend_class in AVAILABLE_BACKENDS.items():
+    for backend_name, backend_class in backend_registry.get_all_backends().items():
         table.add_row(
             backend_name,
             backend_class.get_description(),
@@ -82,7 +72,7 @@ def list() -> None:
     "--backend", 
     "-b", 
     required=True,
-    type=click.Choice(_BACKEND_CHOICES),
+    type=click.Choice(get_backend_choices()),
     help="Backend type to use"
 )
 @click.option("--output-dir", "-o", default=".", help="Output directory (default: current directory)")
@@ -103,14 +93,23 @@ def create(
     verbose = ctx.obj.get("verbose", False)
     
     # Validate project name
-    if not validate_project_name(project_name):
-        console.print("[red]ERROR: Invalid project name. Use alphanumeric characters, hyphens, and underscores only.[/red]")
+    try:
+        if not validate_project_name(project_name):
+            raise ValidationError(
+                "Invalid project name", 
+                {"suggestion": "Use alphanumeric characters, hyphens, and underscores only"}
+            )
+    except ValidationError as e:
+        console.print(format_cli_error(str(e), e.details.get("suggestion")))
+        logger.error(f"Project name validation failed: {e}")
         sys.exit(1)
     
     # Check if project already exists
     project_path = Path(output_dir) / project_name
     if project_path.exists() and not force:
-        console.print(f"[red]ERROR: Project '{project_name}' already exists. Use --force to overwrite.[/red]")
+        error_msg = f"Project '{project_name}' already exists"
+        console.print(format_cli_error(error_msg, "Use --force to overwrite"))
+        logger.error(f"Project already exists: {project_path}")
         sys.exit(1)
     
     console.print(f"\n[bold green]Creating MCP server: {project_name}[/bold green]")
@@ -118,6 +117,8 @@ def create(
     console.print(f"[dim]Output: {project_path.absolute()}[/dim]\n")
     
     try:
+        logger.info(f"Creating MCP server project: {project_name}")
+        
         # Initialize project generator
         generator = ProjectGenerator(
             project_name=project_name,
@@ -128,25 +129,33 @@ def create(
         
         # Load configuration if provided
         if config_file:
+            logger.debug(f"Loading configuration from: {config_file}")
             generator.load_config(config_file)
         
         # Generate project
         with console.status("[bold green]Generating project..."):
             generator.generate()
         
-        console.print("[green]SUCCESS: Project structure created successfully![/green]")
+        console.print(format_cli_success("Project structure created successfully!"))
+        logger.info(f"Project generated successfully at: {project_path}")
         
         # Install dependencies unless skipped
         if not no_install:
             with console.status("[bold yellow]Installing dependencies..."):
                 generator.install_dependencies()
-            console.print("[green]SUCCESS: Dependencies installed successfully![/green]")
+            console.print(format_cli_success("Dependencies installed successfully!"))
+            logger.info("Dependencies installed successfully")
         
         # Show next steps
         _show_next_steps(project_name, project_path)
         
+    except ModelCtxError as e:
+        console.print(format_cli_error(f"Error creating project: {e}"))
+        logger.error(f"ModelCtx error during project creation: {e}", exc_info=verbose)
+        sys.exit(1)
     except Exception as e:
-        console.print(f"[red]ERROR: Error creating project: {e}[/red]")
+        console.print(format_cli_error(f"Unexpected error creating project: {e}"))
+        logger.error(f"Unexpected error during project creation: {e}", exc_info=True)
         if verbose:
             console.print_exception()
         sys.exit(1)
@@ -199,10 +208,16 @@ def wizard(ctx: click.Context, output_dir: str) -> None:
         _show_next_steps(config.project_name, project_path)
         
     except KeyboardInterrupt:
-        console.print("\n[yellow]WARNING: Wizard cancelled by user.[/yellow]")
+        console.print(f"\n{format_cli_warning('Wizard cancelled by user')}")
+        logger.info("Wizard cancelled by user")
         sys.exit(0)
+    except ModelCtxError as e:
+        console.print(f"\n{format_cli_error(f'Error during wizard: {e}')}")
+        logger.error(f"ModelCtx error during wizard: {e}", exc_info=verbose)
+        sys.exit(1)
     except Exception as e:
-        console.print(f"\n[red]ERROR: Error during wizard: {e}[/red]")
+        console.print(f"\n{format_cli_error(f'Unexpected error during wizard: {e}')}")
+        logger.error(f"Unexpected error during wizard: {e}", exc_info=True)
         if verbose:
             console.print_exception()
         sys.exit(1)
@@ -249,7 +264,15 @@ def deploy(project_name: str, target: str) -> None:
 
 
 def _show_next_steps(project_name: str, project_path: Path) -> None:
-    """Show next steps after project creation."""
+    """Display post-creation instructions to the user.
+    
+    Shows a formatted panel with step-by-step instructions for setting up
+    and testing the newly created MCP server project.
+    
+    Args:
+        project_name: Name of the created project.
+        project_path: Path to the project directory.
+    """
     next_steps = Text()
     next_steps.append("Next Steps:\n\n", style="bold green")
     next_steps.append(f"1. Navigate to your project:\n   cd {project_path}\n\n", style="cyan")
@@ -275,7 +298,7 @@ def _list_templates() -> None:
     table.add_column("Description", style="white")
     
     # Built-in templates
-    for backend_name in AVAILABLE_BACKENDS.keys():
+    for backend_name in backend_registry.get_backend_names():
         table.add_row(
             f"{backend_name}-basic",
             "Built-in",

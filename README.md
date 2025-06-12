@@ -4,6 +4,9 @@
 
 [![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://python.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Website](https://img.shields.io/badge/website-modelcontextkit.com-blue.svg)](https://modelcontextkit.com)
+
+🌐 **Visit our website**: [modelcontextkit.com](https://modelcontextkit.com)
 
 ## What is MCP?
 
@@ -19,6 +22,15 @@ The Model Context Protocol (MCP) is an open standard developed by Anthropic that
 🧪 **Testing Ready**: Generated projects include test suites and examples  
 📖 **Auto Documentation**: Comprehensive documentation generation  
 🎨 **Claude Desktop Integration**: Automatic configuration for Claude Desktop  
+✅ **Production Ready**: Generates syntactically correct, tested code that works out of the box  
+
+## Recent Improvements
+
+🔧 **Fixed Code Generation**: Resolved indentation and syntax issues in generated MCP servers  
+📋 **Corrected MCP Schema**: Updated to use proper `input_schema` format  
+🧪 **Improved Tests**: Updated test templates to use modern MCP patterns  
+🔗 **Fixed Resource URIs**: Simplified resource implementations to avoid template issues  
+✨ **Enhanced Reliability**: All backend types now generate working, compilable code  
 
 ## Installation
 
@@ -206,21 +218,29 @@ Generated servers automatically include configuration for Claude Desktop:
 Each generated project includes:
 
 - **Unit tests** with pytest
-- **Integration tests** with real MCP client
-- **Mock data** for development
-- **Development server** with hot-reload
+- **Syntax validation** - all generated code is syntactically correct
 - **MCP Inspector integration** for testing
+- **Comprehensive test suites** for all tools and resources
+- **Configuration validation** and error handling
 
 ```bash
-# Run tests
+# Navigate to your generated project
 cd my-mcp-server
-python -m pytest
 
-# Start development server
-python server.py --dev
+# Install dependencies (if not done during creation)
+pip install -r requirements.txt
+
+# Validate the generated code syntax
+python -c "import server; print('Server syntax OK')"
+
+# Run the test suite
+python -m pytest tests/ -v
 
 # Test with MCP Inspector
 npx @modelcontextprotocol/inspector python server.py
+
+# Run the server directly
+python server.py
 ```
 
 ## Security Features
@@ -231,6 +251,17 @@ npx @modelcontextprotocol/inspector python server.py
 - 🔐 **Secure credential management**
 - 🚫 **SQL injection prevention**
 - 🌐 **CORS and rate limiting**
+
+## Quality Assurance
+
+ModelContextKit generates high-quality, production-ready code:
+
+- ✅ **Syntax Validation**: All generated Python code passes syntax validation
+- ✅ **MCP Compliance**: Generated servers follow MCP protocol specifications  
+- ✅ **Type Safety**: Proper type hints and schema definitions
+- ✅ **Error Handling**: Comprehensive exception handling and logging
+- ✅ **Test Coverage**: Generated test suites validate all functionality
+- ✅ **Documentation**: Auto-generated documentation and examples
 
 ## CLI Reference
 
@@ -264,6 +295,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Support
 
+- 🌐 [Official Website](https://modelcontextkit.com)
 - 📚 [Documentation](https://github.com/ModelContextKit/modelctx/wiki)
 - 🐛 [Bug Reports](https://github.com/ModelContextKit/modelctx/issues)
 - 💬 [Discussions](https://github.com/ModelContextKit/modelctx/discussions)

@@ -152,6 +152,7 @@ Desktop.ini
 # MCP Setup Tool specific
 generated_projects/
 temp_projects/
+test_generation/
 *.tmp
 test_outputs/
 
@@ -170,3 +171,5 @@ upload_manual.sh
 
 # MCP Servers specific
 # mcp-servers/
+
+upload_env/

@@ -35,176 +35,179 @@ class WebScraperBackend(BaseBackend):
                 "description": "Scrape content from a web page with rate limiting and robots.txt compliance",
                 "parameters": "url: str, method: str = 'requests', extract_text: bool = True, extract_links: bool = False, css_selector: str = None",
                 "return_type": "dict",
-                "implementation": '''
-    try:
-        logger.info(f"Scraping URL: {url}")
-        
-        # Validate URL
-        if not await _validate_url(url):
-            raise ValueError(f"Invalid or disallowed URL: {url}")
-        
-        # Check robots.txt compliance
-        if RESPECT_ROBOTS_TXT and not await _check_robots_txt(url):
-            return {
-                "success": False,
-                "error": "Access denied by robots.txt",
-                "url": url
-            }
-        
-        # Check rate limiting
-        if not await _check_rate_limit(url):
-            return {
-                "success": False,
-                "error": "Rate limit exceeded for this domain",
-                "url": url
-            }
-        
-        # Record request for rate limiting
-        await _record_request(url)
-        
-        # Choose scraping method
-        if method == "selenium":
-            content_data = await _scrape_with_selenium(url, css_selector)
-        elif method == "playwright":
-            content_data = await _scrape_with_playwright(url, css_selector)
-        else:  # default to requests
-            content_data = await _scrape_with_requests(url, css_selector)
-        
-        if not content_data["success"]:
-            return content_data
-        
-        # Parse content
-        soup = BeautifulSoup(content_data["html"], 'html.parser')
-        
-        # Extract metadata
-        metadata = await _extract_metadata(soup)
-        
-        # Extract text content if requested
-        text_content = ""
+                "implementation": '''logger.info(f"Scraping URL: {url}")
+
+# Validate URL
+if not await _validate_url(url):
+    raise ValueError(f"Invalid or disallowed URL: {url}")
+
+# Check robots.txt compliance
+if RESPECT_ROBOTS_TXT and not await _check_robots_txt(url):
+    return {
+        "success": False,
+        "error": "Access denied by robots.txt",
+        "url": url
+    }
+    
+# Check rate limiting
+if not await _check_rate_limit(url):
+    return {
+        "success": False,
+        "error": "Rate limit exceeded for this domain",
+        "url": url
+    }
+
+# Record request for rate limiting
+await _record_request(url)
+
+# Choose scraping method
+if method == "selenium":
+    content_data = await _scrape_with_selenium(url, css_selector)
+elif method == "playwright":
+    content_data = await _scrape_with_playwright(url, css_selector)
+else:  # default to requests
+    content_data = await _scrape_with_requests(url, css_selector)
+    
+if not content_data["success"]:
+    return content_data
+
+# Parse content
+soup = BeautifulSoup(content_data["html"], 'html.parser')
+
+# Extract metadata
+metadata = await _extract_metadata(soup)
+
+# Extract text content if requested
+text_content = ""
+if extract_text:
+    text_content = await _extract_clean_text(soup)
+
+# Extract links if requested
+links = []
+if extract_links:
+    links = await _extract_links(soup, url)
+
+# Apply CSS selector if provided
+selected_content = ""
+if css_selector:
+    selected_elements = soup.select(css_selector)
+    if selected_elements:
         if extract_text:
-            text_content = await _extract_clean_text(soup)
-        
-        # Extract links if requested
-        links = []
-        if extract_links:
-            links = await _extract_links(soup, url)
-        
-        # Apply CSS selector if provided
-        selected_content = ""
-        if css_selector:
-            selected_elements = soup.select(css_selector)
-            if selected_elements:
-                if extract_text:
-                    selected_content = "\\n".join([elem.get_text(strip=True) for elem in selected_elements])
-                else:
-                    selected_content = "\\n".join([str(elem) for elem in selected_elements])
-        
-        return {
-            "success": True,
-            "url": url,
-            "title": metadata.get("title", ""),
-            "description": metadata.get("description", ""),
-            "text_content": text_content if extract_text else "",
-            "html_content": content_data["html"] if not extract_text else "",
-            "selected_content": selected_content,
-            "links": links if extract_links else [],
-            "metadata": metadata,
-            "method": method,
-            "status_code": content_data.get("status_code", 200),
-            "response_time": content_data.get("response_time", 0),
-            "content_length": len(content_data["html"])
-        }
-        
-    except Exception as e:
-        logger.error(f"Scraping error for {url}: {e}")
-        return {
-            "success": False,
-            "error": str(e),
-            "url": url
-        }
-'''
+            selected_content = "\\n".join([elem.get_text(strip=True) for elem in selected_elements])
+        else:
+            selected_content = "\\n".join([str(elem) for elem in selected_elements])
+    
+return {
+    "success": True,
+    "url": url,
+    "title": metadata.get("title", ""),
+    "description": metadata.get("description", ""),
+    "text_content": text_content if extract_text else "",
+    "html_content": content_data["html"] if not extract_text else "",
+    "selected_content": selected_content,
+    "links": links if extract_links else [],
+    "metadata": metadata,
+    "method": method,
+    "status_code": content_data.get("status_code", 200),
+    "response_time": content_data.get("response_time", 0),
+    "content_length": len(content_data["html"]),
+    "timestamp": datetime.now().isoformat()
+}'''
             },
             {
                 "name": "extract_links",
                 "description": "Extract all links from a web page",
                 "parameters": "url: str, filter_domain: bool = False, include_external: bool = True",
                 "return_type": "dict",
-                "implementation": '''
-    try:
-        logger.info(f"Extracting links from: {url}")
-        
-        # Scrape the page first
-        scrape_result = await scrape_url(url, extract_text=False, extract_links=False)
-        
-        if not scrape_result["success"]:
-            return scrape_result
-        
-        # Parse HTML
-        soup = BeautifulSoup(scrape_result.get("html_content", ""), 'html.parser')
-        
-        # Extract all links
-        links = []
-        base_domain = urlparse(url).netloc
-        
-        for link_elem in soup.find_all('a', href=True):
-            href = link_elem['href']
-            text = link_elem.get_text(strip=True)
-            
-            # Convert relative URLs to absolute
-            absolute_url = urljoin(url, href)
-            link_domain = urlparse(absolute_url).netloc
-            
-            # Apply domain filtering
-            if filter_domain and link_domain != base_domain:
-                continue
-            
-            if not include_external and link_domain != base_domain:
-                continue
-            
-            # Extract additional attributes
-            link_info = {
-                "url": absolute_url,
-                "text": text,
-                "title": link_elem.get('title', ''),
-                "domain": link_domain,
-                "is_external": link_domain != base_domain,
-                "rel": link_elem.get('rel', []),
-                "target": link_elem.get('target', '')
-            }
-            
-            links.append(link_info)
-        
-        # Remove duplicates while preserving order
-        seen_urls = set()
-        unique_links = []
-        for link in links:
-            if link["url"] not in seen_urls:
-                seen_urls.add(link["url"])
-                unique_links.append(link)
-        
-        # Categorize links
-        internal_links = [link for link in unique_links if not link["is_external"]]
-        external_links = [link for link in unique_links if link["is_external"]]
-        
-        return {
-            "success": True,
-            "url": url,
-            "links": unique_links,
-            "internal_links": internal_links,
-            "external_links": external_links,
-            "total_links": len(unique_links),
-            "internal_count": len(internal_links),
-            "external_count": len(external_links),
-            "base_domain": base_domain
-        }
-        
-    except Exception as e:
-        logger.error(f"Link extraction error for {url}: {e}")
+                "implementation": '''logger.info(f"Extracting links from: {url}")
+
+# Validate URL first
+if not await _validate_url(url):
+    return {
+        "success": False,
+        "error": f"Invalid or disallowed URL: {url}",
+        "url": url
+    }
+
+# Check rate limiting
+if not await _check_rate_limit(url):
+    return {
+        "success": False,
+        "error": "Rate limit exceeded for this domain",
+        "url": url
+    }
+
+# Record request for rate limiting
+await _record_request(url)
+
+# Scrape the page
+async with get_http_client() as client:
+    response = await client.get(url)
+    if response.status_code != 200:
         return {
             "success": False,
-            "error": str(e),
+            "error": f"HTTP {response.status_code}: {response.reason_phrase}",
             "url": url
         }
+
+# Parse HTML
+soup = BeautifulSoup(response.text, 'html.parser')
+
+# Extract all links
+links = []
+base_domain = urlparse(url).netloc
+
+for link_elem in soup.find_all('a', href=True):
+    href = link_elem['href']
+    text = link_elem.get_text(strip=True)
+    
+    # Convert relative URLs to absolute
+    absolute_url = urljoin(url, href)
+    link_domain = urlparse(absolute_url).netloc
+    
+    # Apply domain filtering
+    if filter_domain and link_domain != base_domain:
+        continue
+    
+    if not include_external and link_domain != base_domain:
+        continue
+    
+    # Extract additional attributes
+    link_info = {
+        "url": absolute_url,
+        "text": text,
+        "title": link_elem.get('title', ''),
+        "domain": link_domain,
+        "is_external": link_domain != base_domain,
+        "rel": link_elem.get('rel', []),
+        "target": link_elem.get('target', '')
+    }
+    
+    links.append(link_info)
+
+# Remove duplicates while preserving order
+seen_urls = set()
+unique_links = []
+for link in links:
+    if link["url"] not in seen_urls:
+        seen_urls.add(link["url"])
+        unique_links.append(link)
+
+# Categorize links
+internal_links = [link for link in unique_links if not link["is_external"]]
+external_links = [link for link in unique_links if link["is_external"]]
+
+return {
+    "success": True,
+    "url": url,
+    "links": unique_links,
+    "internal_links": internal_links,
+    "external_links": external_links,
+    "total_links": len(unique_links),
+    "internal_count": len(internal_links),
+    "external_count": len(external_links),
+    "base_domain": base_domain
+    }
 '''
             },
             {
@@ -212,57 +215,47 @@ class WebScraperBackend(BaseBackend):
                 "description": "Take a screenshot of a web page using browser automation",
                 "parameters": "url: str, width: int = 1920, height: int = 1080, full_page: bool = False, format: str = 'png'",
                 "return_type": "dict",
-                "implementation": '''
-    try:
-        logger.info(f"Taking screenshot of: {url}")
-        
-        # Validate URL
-        if not await _validate_url(url):
-            raise ValueError(f"Invalid or disallowed URL: {url}")
-        
-        # Check rate limiting
-        if not await _check_rate_limit(url):
-            return {
-                "success": False,
-                "error": "Rate limit exceeded for this domain",
-                "url": url
-            }
-        
-        # Record request for rate limiting
-        await _record_request(url)
-        
-        # Take screenshot using preferred method
-        if SCREENSHOT_METHOD == "playwright":
-            screenshot_data = await _screenshot_with_playwright(url, width, height, full_page, format)
-        else:  # selenium
-            screenshot_data = await _screenshot_with_selenium(url, width, height, full_page, format)
-        
-        if screenshot_data["success"]:
-            # Encode screenshot as base64
-            import base64
-            screenshot_base64 = base64.b64encode(screenshot_data["image_data"]).decode('utf-8')
-            
-            return {
-                "success": True,
-                "url": url,
-                "screenshot_base64": screenshot_base64,
-                "format": format,
-                "width": width,
-                "height": height,
-                "full_page": full_page,
-                "file_size": len(screenshot_data["image_data"]),
-                "method": SCREENSHOT_METHOD
-            }
-        else:
-            return screenshot_data
-        
-    except Exception as e:
-        logger.error(f"Screenshot error for {url}: {e}")
+                "implementation": '''logger.info(f"Taking screenshot of: {url}")
+    
+    # Validate URL
+    if not await _validate_url(url):
+        raise ValueError(f"Invalid or disallowed URL: {url}")
+    
+    # Check rate limiting
+    if not await _check_rate_limit(url):
         return {
             "success": False,
-            "error": str(e),
+            "error": "Rate limit exceeded for this domain",
             "url": url
         }
+    
+    # Record request for rate limiting
+    await _record_request(url)
+    
+    # Take screenshot using preferred method
+    if SCREENSHOT_METHOD == "playwright":
+        screenshot_data = await _screenshot_with_playwright(url, width, height, full_page, format)
+    else:  # selenium
+        screenshot_data = await _screenshot_with_selenium(url, width, height, full_page, format)
+    
+    if screenshot_data["success"]:
+        # Encode screenshot as base64
+        import base64
+        screenshot_base64 = base64.b64encode(screenshot_data["image_data"]).decode('utf-8')
+        
+        return {
+            "success": True,
+            "url": url,
+            "screenshot_base64": screenshot_base64,
+            "format": format,
+            "width": width,
+            "height": height,
+            "full_page": full_page,
+            "file_size": len(screenshot_data["image_data"]),
+            "method": SCREENSHOT_METHOD
+        }
+    else:
+        return screenshot_data
 '''
             },
             {
@@ -270,69 +263,59 @@ class WebScraperBackend(BaseBackend):
                 "description": "Check robots.txt file for a domain and verify access permissions",
                 "parameters": "url: str, user_agent: str = '*'",
                 "return_type": "dict",
-                "implementation": '''
-    try:
-        logger.info(f"Checking robots.txt for: {url}")
+                "implementation": '''logger.info(f"Checking robots.txt for: {url}")
+    
+    # Parse domain from URL
+    parsed_url = urlparse(url)
+    robots_url = f"{parsed_url.scheme}://{parsed_url.netloc}/robots.txt"
+    
+    # Fetch robots.txt
+    async with httpx.AsyncClient(timeout=10) as client:
+        try:
+            response = await client.get(robots_url, headers={"User-Agent": USER_AGENT})
+            robots_content = response.text if response.status_code == 200 else ""
+        except Exception:
+            robots_content = ""
+    
+    # Parse robots.txt
+    from urllib.robotparser import RobotFileParser
+    
+    rp = RobotFileParser()
+    rp.set_url(robots_url)
+    
+    if robots_content:
+        rp.feed(robots_content)
+    
+    # Check if URL is allowed
+    can_fetch = rp.can_fetch(user_agent, url)
+    
+    # Extract relevant directives
+    directives = []
+    if robots_content:
+        lines = robots_content.split('\\n')
+        current_ua = None
         
-        # Parse domain from URL
-        parsed_url = urlparse(url)
-        robots_url = f"{parsed_url.scheme}://{parsed_url.netloc}/robots.txt"
-        
-        # Fetch robots.txt
-        async with httpx.AsyncClient(timeout=10) as client:
-            try:
-                response = await client.get(robots_url, headers={"User-Agent": USER_AGENT})
-                robots_content = response.text if response.status_code == 200 else ""
-            except Exception:
-                robots_content = ""
-        
-        # Parse robots.txt
-        from urllib.robotparser import RobotFileParser
-        
-        rp = RobotFileParser()
-        rp.set_url(robots_url)
-        
-        if robots_content:
-            rp.feed(robots_content)
-        
-        # Check if URL is allowed
-        can_fetch = rp.can_fetch(user_agent, url)
-        
-        # Extract relevant directives
-        directives = []
-        if robots_content:
-            lines = robots_content.split('\\n')
-            current_ua = None
-            
-            for line in lines:
-                line = line.strip()
-                if line.startswith('User-agent:'):
-                    current_ua = line.split(':', 1)[1].strip()
-                elif line.startswith(('Disallow:', 'Allow:', 'Crawl-delay:', 'Sitemap:')):
-                    directives.append({
-                        "user_agent": current_ua,
-                        "directive": line
-                    })
-        
-        return {
-            "success": True,
-            "url": url,
-            "robots_url": robots_url,
-            "can_fetch": can_fetch,
-            "user_agent": user_agent,
-            "robots_exists": bool(robots_content),
-            "robots_content": robots_content,
-            "directives": directives,
-            "domain": parsed_url.netloc
-        }
-        
-    except Exception as e:
-        logger.error(f"Robots.txt check error for {url}: {e}")
-        return {
-            "success": False,
-            "error": str(e),
-            "url": url
-        }
+        for line in lines:
+            line = line.strip()
+            if line.startswith('User-agent:'):
+                current_ua = line.split(':', 1)[1].strip()
+            elif line.startswith(('Disallow:', 'Allow:', 'Crawl-delay:', 'Sitemap:')):
+                directives.append({
+                    "user_agent": current_ua,
+                    "directive": line
+                })
+    
+    return {
+        "success": True,
+        "url": url,
+        "robots_url": robots_url,
+        "can_fetch": can_fetch,
+        "user_agent": user_agent,
+        "robots_exists": bool(robots_content),
+        "robots_content": robots_content,
+        "directives": directives,
+        "domain": parsed_url.netloc
+    }
 '''
             },
             {
@@ -340,76 +323,66 @@ class WebScraperBackend(BaseBackend):
                 "description": "Get comprehensive information about a web page without full content",
                 "parameters": "url: str",
                 "return_type": "dict",
-                "implementation": '''
-    try:
-        logger.info(f"Getting page info for: {url}")
-        
-        # Validate URL
-        if not await _validate_url(url):
-            raise ValueError(f"Invalid or disallowed URL: {url}")
-        
-        # Check rate limiting
-        if not await _check_rate_limit(url):
-            return {
-                "success": False,
-                "error": "Rate limit exceeded for this domain",
-                "url": url
-            }
-        
-        # Record request for rate limiting
-        await _record_request(url)
-        
-        # Fetch page headers first
-        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=True) as client:
-            # HEAD request first to get basic info
-            head_response = await client.head(url, headers={"User-Agent": USER_AGENT})
-            
-            # GET request for content analysis
-            start_time = time.time()
-            response = await client.get(url, headers={"User-Agent": USER_AGENT})
-            response_time = (time.time() - start_time) * 1000
-        
-        # Parse HTML for metadata
-        soup = BeautifulSoup(response.text, 'html.parser')
-        metadata = await _extract_metadata(soup)
-        
-        # Analyze page structure
-        structure = {
-            "total_links": len(soup.find_all('a', href=True)),
-            "images": len(soup.find_all('img')),
-            "forms": len(soup.find_all('form')),
-            "scripts": len(soup.find_all('script')),
-            "stylesheets": len(soup.find_all('link', rel='stylesheet')),
-            "headings": {
-                f"h{i}": len(soup.find_all(f'h{i}'))
-                for i in range(1, 7)
-            }
-        }
-        
-        return {
-            "success": True,
-            "url": url,
-            "final_url": str(response.url),
-            "status_code": response.status_code,
-            "response_time_ms": round(response_time, 2),
-            "content_type": response.headers.get('content-type', ''),
-            "content_length": len(response.content),
-            "encoding": response.encoding,
-            "title": metadata.get("title", ""),
-            "description": metadata.get("description", ""),
-            "metadata": metadata,
-            "structure": structure,
-            "headers": dict(response.headers),
-            "redirects": len(response.history) if hasattr(response, 'history') else 0
-        }
-        
-    except Exception as e:
-        logger.error(f"Page info error for {url}: {e}")
+                "implementation": '''logger.info(f"Getting page info for: {url}")
+    
+    # Validate URL
+    if not await _validate_url(url):
+        raise ValueError(f"Invalid or disallowed URL: {url}")
+    
+    # Check rate limiting
+    if not await _check_rate_limit(url):
         return {
             "success": False,
-            "error": str(e),
+            "error": "Rate limit exceeded for this domain",
             "url": url
         }
+    
+    # Record request for rate limiting
+    await _record_request(url)
+    
+    # Fetch page headers first
+    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=True) as client:
+        # HEAD request first to get basic info
+        head_response = await client.head(url, headers={"User-Agent": USER_AGENT})
+        
+        # GET request for content analysis
+        start_time = time.time()
+        response = await client.get(url, headers={"User-Agent": USER_AGENT})
+        response_time = (time.time() - start_time) * 1000
+    
+    # Parse HTML for metadata
+    soup = BeautifulSoup(response.text, 'html.parser')
+    metadata = await _extract_metadata(soup)
+    
+    # Analyze page structure
+    structure = {
+        "total_links": len(soup.find_all('a', href=True)),
+        "images": len(soup.find_all('img')),
+        "forms": len(soup.find_all('form')),
+        "scripts": len(soup.find_all('script')),
+        "stylesheets": len(soup.find_all('link', rel='stylesheet')),
+        "headings": {
+            f"h{i}": len(soup.find_all(f'h{i}'))
+            for i in range(1, 7)
+        }
+    }
+    
+    return {
+        "success": True,
+        "url": url,
+        "final_url": str(response.url),
+        "status_code": response.status_code,
+        "response_time_ms": round(response_time, 2),
+        "content_type": response.headers.get('content-type', ''),
+        "content_length": len(response.content),
+        "encoding": response.encoding,
+        "title": metadata.get("title", ""),
+        "description": metadata.get("description", ""),
+        "metadata": metadata,
+        "structure": structure,
+        "headers": dict(response.headers),
+        "redirects": len(response.history) if hasattr(response, 'history') else 0
+    }
 '''
             }
         ]
@@ -422,23 +395,18 @@ class WebScraperBackend(BaseBackend):
                 "description": "Web scraper configuration and settings",
                 "parameters": "",
                 "implementation": '''
-    try:
-        config_info = {
-            "user_agent": USER_AGENT,
-            "respect_robots_txt": RESPECT_ROBOTS_TXT,
-            "rate_limit_delay": RATE_LIMIT_DELAY,
-            "request_timeout": REQUEST_TIMEOUT,
-            "allowed_domains": ALLOWED_DOMAINS if ALLOWED_DOMAINS else "all",
-            "blocked_domains": BLOCKED_DOMAINS,
-            "screenshot_method": SCREENSHOT_METHOD,
-            "max_content_length": MAX_CONTENT_LENGTH
-        }
-        
-        return json.dumps(config_info, indent=2)
-        
-    except Exception as e:
-        logger.error(f"Scraper config resource error: {e}")
-        return json.dumps({"error": str(e)})
+    config_info = {
+        "user_agent": USER_AGENT,
+        "respect_robots_txt": RESPECT_ROBOTS_TXT,
+        "rate_limit_delay": RATE_LIMIT_DELAY,
+        "request_timeout": REQUEST_TIMEOUT,
+        "allowed_domains": ALLOWED_DOMAINS if ALLOWED_DOMAINS else "all",
+        "blocked_domains": BLOCKED_DOMAINS,
+        "screenshot_method": SCREENSHOT_METHOD,
+        "max_content_length": MAX_CONTENT_LENGTH
+    }
+    
+    return json.dumps(config_info, indent=2)
 '''
             },
             {
@@ -447,21 +415,16 @@ class WebScraperBackend(BaseBackend):
                 "description": "Information about scraping activity for a specific domain",
                 "parameters": "domain: str",
                 "implementation": '''
-    try:
-        domain_stats = await _get_domain_stats(domain)
-        
-        return json.dumps({
-            "domain": domain,
-            "requests_made": domain_stats.get("requests", 0),
-            "last_request": domain_stats.get("last_request", "never"),
-            "rate_limit_remaining": await _get_rate_limit_remaining(domain),
-            "robots_txt_checked": domain_stats.get("robots_checked", False),
-            "robots_txt_allows": domain_stats.get("robots_allows", True)
-        }, indent=2)
-        
-    except Exception as e:
-        logger.error(f"Domain info resource error: {e}")
-        return json.dumps({"error": str(e)})
+    domain_stats = await _get_domain_stats(domain)
+    
+    return json.dumps({
+        "domain": domain,
+        "requests_made": domain_stats.get("requests", 0),
+        "last_request": domain_stats.get("last_request", "never"),
+        "rate_limit_remaining": await _get_rate_limit_remaining(domain),
+        "robots_txt_checked": domain_stats.get("robots_checked", False),
+        "robots_txt_allows": domain_stats.get("robots_allows", True)
+    }, indent=2)
 '''
             }
         ]

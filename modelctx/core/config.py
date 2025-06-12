@@ -4,7 +4,7 @@ import os
 import yaml
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Type
 
 import click
 from rich.console import Console
@@ -13,7 +13,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from modelctx.backends import AVAILABLE_BACKENDS, get_backend_class
-from modelctx.backends.base import BackendConfig
+from modelctx.backends.base import BackendConfig, BaseBackend
 from modelctx.utils.validation import validate_project_name, validate_url, validate_file_path
 
 console = Console()
@@ -147,7 +147,7 @@ class ConfigWizard:
             default=default_desc
         )
     
-    def _configure_backend(self, backend_class, project_name: str) -> BackendConfig:
+    def _configure_backend(self, backend_class: Type[BaseBackend], project_name: str) -> BackendConfig:
         """Configure backend-specific settings."""
         console.print(f"\n[bold cyan]⚙️ Configuring {backend_class.get_backend_type()} backend:[/bold cyan]")
         
